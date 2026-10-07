@@ -185,7 +185,10 @@ function onTextInner(conv: ConversationSnapshot, text: string, ex: ExtractionRes
       };
     }
     case 'viewingRequest': {
-      const target = resolveTargets(conv, ex.targetPositions.slice(0, 1), ctx)[0]?.property.id ?? conv.booking?.propertyId;
+      // 番号の指定 → 聞き取り中の物件 → 提示が1件だけならその物件、の順で決める
+      // （古いカードの「内見を希望」で聞き取り中のときに、いまの提示1件目へ取り違えないため）
+      const explicit = ex.targetPositions.length > 0 ? resolveTargets(conv, ex.targetPositions.slice(0, 1), ctx)[0] : undefined;
+      const target = explicit?.property.id ?? conv.booking?.propertyId ?? resolveTargets(conv, [], ctx)[0]?.property.id;
       if (!target) return { ...base(conv), replies: [{ type: 'text', text: msg.askWhichProperty() }] };
       // 対象の物件が変わったら、それまでの候補日時は持ち越さない
       const keep = conv.booking?.propertyId === target ? conv : { ...conv, booking: null };

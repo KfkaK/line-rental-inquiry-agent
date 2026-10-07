@@ -100,6 +100,14 @@ describe('extractIntentAndSlots: 正常系', () => {
     expect(outcome.result.targetPositions).toEqual([2, 3]);
   });
 
+  it('表示番号に欠番があっても（非公開になった物件）、残っている番号は受ける', async () => {
+    const gapped = SHOWN.filter((s) => s.position !== 2).concat([
+      { position: 5, name: 'メゾン目黒', rent: 68000, station: '目黒', layout: '1K' },
+    ]);
+    const { outcome } = await run(ok({ intent: 'propertyQuestion', targetPositions: [5, 2] }), { shown: gapped });
+    expect(outcome.result.targetPositions).toEqual([5]);
+  });
+
   it('提示済みが空なら targetPositions は空', async () => {
     const { outcome } = await run(ok({ intent: 'propertyQuestion', targetPositions: [1] }), { shown: [] });
     expect(outcome.result.targetPositions).toEqual([]);
@@ -262,6 +270,20 @@ describe('extractIntentAndSlots: スキーマ違反の再試行とフォール�
     expect(failed.outcome.fallback).toBe(true);
     expect(failed.outcome.result.intent).toBe('offTopic');
     expect(failed.outcome.usage.inputTokens).toBe(0);
+  });
+
+  it('ツール入力が得られなかった試行も、課金済みの使用量と費用を計上する', async () => {
+    const usage = { inputTokens: 5000, outputTokens: 40, cacheWriteTokens: 0, cacheReadTokens: 0 };
+    const err = () => ({ error: new LlmToolCallError('呼ばれなかった', 'no_tool_use', { usage, model: MODEL_FAST }) });
+    const { outcome } = await run([err(), err()]);
+    expect(outcome.fallback).toBe(true);
+    expect(outcome.usage.inputTokens).toBe(10000);
+    expect(outcome.costUsd).toBeCloseTo(costUsd(MODEL_FAST, usage) * 2);
+  });
+
+  it('フォールバックのログに発話の本文を出さない（個人情報）', async () => {
+    const { log } = await run([{ input: { intent: 'bogus' } }, { input: { intent: 'bogus' } }], { utterance: '山田です 090-1234-5678' });
+    expect(JSON.stringify(log.error.mock.calls)).not.toContain('090-1234-5678');
   });
 
   it('API 自体のエラー（認証・ネットワークなど）は握りつぶさず投げる', async () => {

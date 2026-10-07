@@ -241,15 +241,18 @@ export async function handleEvent(event: webhook.Event, deps: Deps): Promise<voi
     viewing = { id: created.id, propertyName: property?.name ?? decision.viewingRequest.propertyId };
   }
 
-  // ---- 送信と通知 ----
-  await send(messenger, userId, replyToken, renderMessages(blocks, decision.quickReplies));
-  if (viewing && decision.viewingRequest) {
-    await deps.notifier.viewingRequested({
-      viewingRequestId: viewing.id,
-      propertyName: viewing.propertyName,
-      candidateTimes: decision.viewingRequest.candidateTimes,
-      receivedOutsideHours: !isOpenAt(startedAt, calendar),
-    });
+  // ---- 送信と通知（送信に失敗しても、保存済みの仮受付は担当者へ知らせる） ----
+  try {
+    await send(messenger, userId, replyToken, renderMessages(blocks, decision.quickReplies));
+  } finally {
+    if (viewing && decision.viewingRequest) {
+      await deps.notifier.viewingRequested({
+        viewingRequestId: viewing.id,
+        propertyName: viewing.propertyName,
+        candidateTimes: decision.viewingRequest.candidateTimes,
+        receivedOutsideHours: !isOpenAt(startedAt, calendar),
+      });
+    }
   }
 }
 

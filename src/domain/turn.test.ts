@@ -241,6 +241,27 @@ describe('内見の仮受付', () => {
     expect(texts(d)[0]).toContain('10月8日(木)以降');
   });
 
+  it('番号の指定が無ければ、提示1件目より聞き取り中の物件を優先する（古いカードの「内見を希望」）', () => {
+    const one = [makeProperty({ id: 'A001' }), makeProperty({ id: 'B001' })];
+    const conv: ConversationSnapshot = {
+      ...fresh(),
+      state: 'booking',
+      slots: search(one).next.slots,
+      shownPropertyIds: ['A001'],
+      booking: { propertyId: 'B001', candidateTimes: [] },
+    };
+    const d = decideTurn(
+      conv,
+      {
+        kind: 'text',
+        text: '8日の14時と9日の10時で',
+        extraction: ex({ intent: 'viewingRequest', viewingTimes: ['2026-10-08T14:00', '2026-10-09T10:00'] }),
+      },
+      ctx(one, NIGHT),
+    );
+    expect(d.viewingRequest?.propertyId).toBe('B001');
+  });
+
   it('1件だけでも「この日時で送る」で受け付ける', () => {
     const conv: ConversationSnapshot = { ...presented(), booking: { propertyId: 'S002', candidateTimes: ['2026-10-09T11:00'] } };
     const d = decideTurn(conv, { kind: 'bookingSubmit' }, ctx(props, NIGHT));

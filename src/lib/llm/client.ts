@@ -57,6 +57,8 @@ export class LlmToolCallError extends Error {
   constructor(
     message: string,
     readonly reason: 'no_tool_use' | 'refusal' | 'max_tokens',
+    /** API は応答している（課金済み）ので、費用の計上に使う。偽物などで分からなければ undefined */
+    readonly billed?: { usage: TokenUsage; model: string },
   ) {
     super(message);
     this.name = 'LlmToolCallError';
@@ -128,14 +130,17 @@ export function usageOf(message: Pick<MessageLike, 'usage'>): TokenUsage {
 
 /** 応答からツール入力を取り出す。得られなければ LlmToolCallError */
 export function parseToolMessage(message: MessageLike, toolName: string): { input: unknown; usage: TokenUsage; model: string } {
+  const billed = { usage: usageOf(message), model: message.model };
   if (message.stop_reason === 'refusal') {
-    throw new LlmToolCallError('モデルが応答を拒否しました（stop_reason: refusal）', 'refusal');
+    throw new LlmToolCallError('モデルが応答を拒否しました（stop_reason: refusal）', 'refusal', billed);
   }
   const block = message.content.find((b) => b.type === 'tool_use' && b.name === toolName);
-  if (!block) throw new LlmToolCallError(`ツール ${toolName} が呼ばれませんでした（stop_reason: ${String(message.stop_reason)}）`, 'no_tool_use');
+  if (!block) {
+    throw new LlmToolCallError(`ツール ${toolName} が呼ばれませんでした（stop_reason: ${String(message.stop_reason)}）`, 'no_tool_use', billed);
+  }
   // max_tokens で切れたツール入力は、一見妥当な途中までの JSON として返ることがあるので使わない
   if (message.stop_reason === 'max_tokens') {
-    throw new LlmToolCallError('ツール入力が max_tokens で途中切れです', 'max_tokens');
+    throw new LlmToolCallError('ツール入力が max_tokens で途中切れです', 'max_tokens', billed);
   }
   return { input: block.input, usage: usageOf(message), model: message.model };
 }

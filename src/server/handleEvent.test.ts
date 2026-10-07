@@ -178,6 +178,20 @@ describe('handleEvent', () => {
     expect(t.messenger.pushes.map((p) => p.to)).toEqual([USER]);
   });
 
+  it('LINE への送信が失敗しても、保存した仮受付は担当者へ通知する', async () => {
+    const t = setup({ now: NIGHT, extractions: [SEARCH] });
+    await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+    await handleEvent(postbackEvent(buildPostbackData({ action: 'viewing', propertyId: 'P2' })), t.deps);
+    await handleEvent(postbackEvent(buildPostbackData({ action: 'viewingDay', date: '2026-10-08' })), t.deps);
+    t.messenger.failReplyWith = new Error('Invalid reply token');
+    t.messenger.failPushWith = new Error('monthly limit');
+    await expect(
+      handleEvent(postbackEvent(buildPostbackData({ action: 'viewingDay', date: '2026-10-09' })), t.deps),
+    ).rejects.toThrow('monthly limit');
+    expect(await t.repos.viewingRequests.listByStatus('pending')).toHaveLength(1);
+    expect(t.notifier.viewingRequested).toHaveBeenCalledTimes(1);
+  });
+
   it('偽造された postback は無視する', async () => {
     const t = setup();
     await handleEvent(postbackEvent('a=detail&id='), t.deps);

@@ -437,12 +437,13 @@ const isForbiddenTopic = (s: string): s is ForbiddenTopic => (FORBIDDEN_TOPICS a
 
 function toExtractionResult(
   input: z.infer<typeof ToolInputSchema>,
-  shownCount: number,
+  /** 提示済みリストにある表示番号（非公開になった物件が抜けて欠番があり得るので、件数ではなく番号の集合で見る） */
+  shownPositions: ReadonlySet<number>,
 ): { result: ExtractionResult; dropped: Array<{ raw: unknown; reason: string }> } {
   const { ops, dropped } = canonicalizeOpsWithReport(input.ops.map(flatOpToRaw));
   const targetPositions: number[] = [];
   for (const n of input.targetPositions) {
-    if (Number.isInteger(n) && n >= 1 && n <= shownCount && !targetPositions.includes(n)) targetPositions.push(n);
+    if (Number.isInteger(n) && shownPositions.has(n) && !targetPositions.includes(n)) targetPositions.push(n);
   }
   const viewingTimes: string[] = [];
   for (const raw of input.viewingTimes) {
@@ -500,6 +501,12 @@ export async function extractIntentAndSlots(params: ExtractParams): Promise<Extr
       });
     } catch (err) {
       if (!(err instanceof LlmToolCallError)) throw err;
+      // ツール入力が得られなくても API は課金済み。1日の費用上限が過少にならないよう計上する
+      if (err.billed) {
+        usage = addUsage(usage, err.billed.usage);
+        cost += costUsd(err.billed.model, err.billed.usage);
+        lastModel = err.billed.model;
+      }
       lastError = err.message;
       logger.error('[extract] ツール呼び出しが得られませんでした', { attempt, reason: err.reason, message: err.message });
       continue;
@@ -511,7 +518,7 @@ export async function extractIntentAndSlots(params: ExtractParams): Promise<Extr
 
     const parsed = ToolInputSchema.safeParse(call.input);
     if (parsed.success) {
-      const { result, dropped } = toExtractionResult(parsed.data, shown.length);
+      const { result, dropped } = toExtractionResult(parsed.data, new Set(shown.map((s) => s.position)));
       if (dropped.length > 0) logger.error('[extract] 辞書で解決できない値を捨てました', { dropped });
       return { result, usage, latencyMs, model: lastModel, costUsd: cost, attempts: attempt, fallback: false, droppedOps: dropped };
     }
@@ -519,7 +526,8 @@ export async function extractIntentAndSlots(params: ExtractParams): Promise<Extr
     logger.error('[extract] 出力の検証に失敗しました', { attempt, error: lastError });
   }
 
-  logger.error('[extract] 検証に失敗し続けたため offTopic に倒します', { lastError, utterance: pre.text });
+  // 発話の本文は個人情報を含み得るのでログに出さない（長さだけ）
+  logger.error('[extract] 検証に失敗し続けたため offTopic に倒します', { lastError, utteranceLength: pre.text.length });
   return {
     result: fallbackExtraction(),
     usage,
