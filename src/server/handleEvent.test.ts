@@ -1,0 +1,254 @@
+import type { webhook } from '@line/bot-sdk';
+import { describe, expect, it, vi } from 'vitest';
+import { fromJst } from '@/domain/businessHours';
+import { makeProperty } from '@/domain/fixtures';
+import type { ExtractionResult, Property } from '@/domain/types';
+import { createMemoryRepositories } from '@/lib/db';
+import { createFakeMessenger } from '@/lib/line/messenger';
+import { buildPostbackData } from '@/lib/line/postback';
+import { handleEvent, type Deps, type ExtractInput, type StaffNotifier } from './handleEvent';
+
+const USER = 'U-test-user';
+/** 火曜 23:30 JST（営業時間外） */
+const NIGHT = fromJst('2026-10-06', '23:30');
+/** 木曜 12:00 JST（営業時間内） */
+const NOON = fromJst('2026-10-08', '12:00');
+
+let eventSeq = 0;
+function baseEvent() {
+  eventSeq += 1;
+  return {
+    mode: 'active',
+    timestamp: 0,
+    source: { type: 'user', userId: USER },
+    webhookEventId: `EV${eventSeq}`,
+    deliveryContext: { isRedelivery: false },
+    replyToken: `RT${eventSeq}`,
+  };
+}
+const textEvent = (text: string) =>
+  ({ ...baseEvent(), type: 'message', message: { type: 'text', id: `M${eventSeq}`, text, quoteToken: 'q' } }) as webhook.Event;
+const postbackEvent = (data: string) => ({ ...baseEvent(), type: 'postback', postback: { data } }) as webhook.Event;
+const followEvent = () => ({ ...baseEvent(), type: 'follow', follow: { isUnblocked: false } }) as webhook.Event;
+
+function ex(partial: Partial<ExtractionResult> = {}): ExtractionResult {
+  return { intent: 'conditions', ops: [], targetPositions: [], viewingTimes: [], forbiddenTopic: null, ...partial };
+}
+
+const SEARCH: ExtractionResult = ex({
+  ops: [
+    { op: 'set', key: 'area', value: { stations: ['渋谷'], wards: [] } },
+    { op: 'set', key: 'rentMax', value: 90000 },
+  ],
+});
+
+function setup(options: { now?: Date; properties?: Property[]; extractions?: ExtractionResult[]; dailyCostLimitUsd?: number } = {}) {
+  let now = (options.now ?? NOON).getTime();
+  const clock = () => new Date(now);
+  const properties = options.properties ?? Array.from({ length: 7 }, (_, i) => makeProperty({ id: `P${i + 1}`, rent: 70000 + i * 1000 }));
+  const repos = createMemoryRepositories({ properties }, { clock });
+  const messenger = createFakeMessenger({ profiles: { [USER]: { displayName: 'テスト太郎' } } });
+  const queue = [...(options.extractions ?? [])];
+  const extractCalls: ExtractInput[] = [];
+  const notifier: StaffNotifier = { viewingRequested: vi.fn(async () => {}) };
+  const answer = vi.fn(async () => ({ text: '駐輪場はあります。', verification: 'ok' as const, latencyMs: 5, costUsd: 0.002 }));
+  const deps: Deps = {
+    repos,
+    messenger,
+    extract: async (input) => {
+      extractCalls.push(input);
+      return { result: queue.shift() ?? ex({ intent: 'offTopic' }), latencyMs: 10, costUsd: 0.001, model: 'fake' };
+    },
+    answer,
+    notifier,
+    clock,
+    dailyCostLimitUsd: options.dailyCostLimitUsd ?? 5,
+  };
+  return {
+    deps,
+    repos,
+    messenger,
+    extractCalls,
+    notifier,
+    answer,
+    advance: (ms: number) => {
+      now += ms;
+    },
+    conversation: () => repos.conversations.getOrCreate(USER),
+    lastReply: () => messenger.replies.at(-1)?.messages ?? [],
+  };
+}
+
+function textsOf(messages: readonly { type: string }[]): string[] {
+  return messages.filter((m) => m.type === 'text').map((m) => (m as unknown as { text: string }).text);
+}
+
+describe('handleEvent', () => {
+  it('友だち追加: 表示名を保存し、AI の一次対応を明示してあいさつする', async () => {
+    const t = setup({ now: NIGHT });
+    await handleEvent(followEvent(), t.deps);
+    expect(textsOf(t.lastReply())[0]).toContain('AI が一次対応');
+    expect(textsOf(t.lastReply())[0]).toContain('営業時間外');
+    const list = await t.repos.conversations.listRecent();
+    expect(list[0].displayName).toBe('テスト太郎');
+  });
+
+  it('同じ webhookEventId の再送は1回しか処理しない', async () => {
+    const t = setup({ extractions: [SEARCH, SEARCH] });
+    const event = textEvent('渋谷で9万まで');
+    await handleEvent(event, t.deps);
+    await handleEvent(event, t.deps);
+    expect(t.messenger.replies).toHaveLength(1);
+    expect(t.extractCalls).toHaveLength(1);
+  });
+
+  it('自由文: 抽出 → 検索 → カード。状態・会話ログ（意図・差分・費用）を保存する', async () => {
+    const t = setup({ extractions: [SEARCH] });
+    await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+    const types = t.lastReply().map((m) => m.type);
+    expect(types).toEqual(['text', 'flex', 'text']);
+    expect(t.messenger.loadings).toHaveLength(1);
+
+    const conv = await t.conversation();
+    expect(conv.state).toBe('presenting');
+    expect(conv.shownPropertyIds).toEqual(['P1', 'P2', 'P3', 'P4', 'P5']);
+    const log = await t.repos.messages.listByConversation(conv.id);
+    expect(log.map((m) => m.role)).toEqual(['user', 'ai']);
+    expect(log[1]).toMatchObject({ intent: 'conditions', costUsd: 0.001 });
+    expect(log[1].slotDiff).toEqual(SEARCH.ops);
+  });
+
+  it('提示済みリストを抽出器に渡し、質問は回答生成に回す', async () => {
+    const t = setup({ extractions: [SEARCH, ex({ intent: 'propertyQuestion', targetPositions: [2] })] });
+    await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+    await handleEvent(textEvent('2番目は駐輪場ある？'), t.deps);
+    expect(t.extractCalls[1].shown.map((s) => [s.position, s.property.id])).toEqual([
+      [1, 'P1'],
+      [2, 'P2'],
+      [3, 'P3'],
+      [4, 'P4'],
+      [5, 'P5'],
+    ]);
+    expect(t.answer).toHaveBeenCalledWith(expect.objectContaining({ question: '2番目は駐輪場ある？' }));
+    expect(textsOf(t.lastReply())).toEqual(['駐輪場はあります。']);
+    const log = await t.repos.messages.listByConversation((await t.conversation()).id);
+    expect(log.at(-1)).toMatchObject({ verification: 'ok', costUsd: 0.001 + 0.002 });
+  });
+
+  it('担当者が対応中（ai_paused）なら返信しない。最終の担当者返信から24時間で自動再開', async () => {
+    const t = setup({ extractions: [SEARCH] });
+    const conv = await (async () => {
+      await t.repos.lineUsers.upsert({ lineUserId: USER });
+      return t.conversation();
+    })();
+    await t.repos.conversations.update(conv.id, { aiPaused: true, lastStaffReplyAt: NOON.toISOString() });
+
+    await handleEvent(textEvent('まだですか？'), t.deps);
+    expect(t.messenger.replies).toHaveLength(0);
+    expect(t.extractCalls).toHaveLength(0);
+    expect((await t.repos.messages.listByConversation(conv.id)).map((m) => m.text)).toEqual(['まだですか？']);
+
+    t.advance(24 * 60 * 60 * 1000);
+    await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+    expect(t.messenger.replies).toHaveLength(1);
+    expect((await t.conversation()).aiPaused).toBe(false);
+  });
+
+  it('1分に5発話を超えたら LLM を呼ばずに「混み合っています」', async () => {
+    const t = setup();
+    for (let i = 0; i < 5; i++) await handleEvent(textEvent(`こんにちは${i}`), t.deps);
+    await handleEvent(textEvent('6回目'), t.deps);
+    expect(t.extractCalls).toHaveLength(5);
+    expect(textsOf(t.lastReply())[0]).toContain('混み合っています');
+  });
+
+  it('1日の費用上限を超えたら LLM を呼ばない', async () => {
+    const t = setup({ dailyCostLimitUsd: 0.0015 });
+    await handleEvent(textEvent('1回目'), t.deps);
+    await handleEvent(textEvent('2回目'), t.deps);
+    await handleEvent(textEvent('3回目'), t.deps);
+    expect(t.extractCalls).toHaveLength(2);
+    expect(textsOf(t.lastReply())[0]).toContain('混み合っています');
+  });
+
+  it('reply が失敗したら push に切り替える', async () => {
+    const t = setup({ extractions: [SEARCH] });
+    t.messenger.failReplyWith = new Error('Invalid reply token');
+    await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+    expect(t.messenger.pushes.map((p) => p.to)).toEqual([USER]);
+  });
+
+  it('LINE への送信が失敗しても、保存した仮受付は担当者へ通知する', async () => {
+    const t = setup({ now: NIGHT, extractions: [SEARCH] });
+    await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+    await handleEvent(postbackEvent(buildPostbackData({ action: 'viewing', propertyId: 'P2' })), t.deps);
+    await handleEvent(postbackEvent(buildPostbackData({ action: 'viewingDay', date: '2026-10-08' })), t.deps);
+    t.messenger.failReplyWith = new Error('Invalid reply token');
+    t.messenger.failPushWith = new Error('monthly limit');
+    await expect(
+      handleEvent(postbackEvent(buildPostbackData({ action: 'viewingDay', date: '2026-10-09' })), t.deps),
+    ).rejects.toThrow('monthly limit');
+    expect(await t.repos.viewingRequests.listByStatus('pending')).toHaveLength(1);
+    expect(t.notifier.viewingRequested).toHaveBeenCalledTimes(1);
+  });
+
+  it('偽造された postback は無視する', async () => {
+    const t = setup();
+    await handleEvent(postbackEvent('a=detail&id='), t.deps);
+    await handleEvent(postbackEvent('{"action":"confirm"}'), t.deps);
+    expect(t.messenger.replies).toHaveLength(0);
+  });
+
+  it('内見: ボタン → 候補日2つで仮受付を保存し、時間外受付を記録して担当者へ通知する', async () => {
+    const t = setup({ now: NIGHT, extractions: [SEARCH] });
+    await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+    await handleEvent(postbackEvent(buildPostbackData({ action: 'viewing', propertyId: 'P2' })), t.deps);
+    expect((await t.conversation()).booking).toEqual({ propertyId: 'P2', candidateTimes: [] });
+    await handleEvent(postbackEvent(buildPostbackData({ action: 'viewingDay', date: '2026-10-08' })), t.deps);
+    await handleEvent(postbackEvent(buildPostbackData({ action: 'viewingDay', date: '2026-10-09' })), t.deps);
+
+    const requests = await t.repos.viewingRequests.listByStatus('pending');
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      propertyId: 'P2',
+      candidateTimes: ['2026-10-08', '2026-10-09'],
+      receivedOutsideHours: true,
+      displayName: null,
+    });
+    expect(t.notifier.viewingRequested).toHaveBeenCalledWith(
+      expect.objectContaining({ propertyName: expect.stringContaining('テスト荘'), receivedOutsideHours: true }),
+    );
+    expect(textsOf(t.lastReply())[0]).toContain('まだ予約は確定していません');
+    expect((await t.conversation()).booking).toBeNull();
+  });
+
+  it('禁止トピックは引き継ぎメモに残す', async () => {
+    const t = setup({ now: NIGHT, extractions: [ex({ intent: 'propertyQuestion', forbiddenTopic: 'safety' })] });
+    await handleEvent(textEvent('このへん治安どう？'), t.deps);
+    const conv = await t.conversation();
+    expect(conv.handoffNotes).toEqual([{ text: 'このへん治安どう？', topic: 'safety', propertyIds: [], at: NIGHT.toISOString() }]);
+    expect(t.answer).not.toHaveBeenCalled();
+  });
+
+  it('条件抽出の API が失敗したら状態を進めず「混み合っています」', async () => {
+    const t = setup();
+    t.deps.extract = async () => {
+      throw new Error('429 rate_limit_error');
+    };
+    await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+    expect(textsOf(t.lastReply())[0]).toContain('混み合っています');
+    expect((await t.conversation()).state).toBe('hearing');
+  });
+
+  it('回答生成が失敗したら推測で埋めず担当者へ回す', async () => {
+    const t = setup({ extractions: [SEARCH, ex({ intent: 'propertyQuestion', targetPositions: [1] })] });
+    t.answer.mockRejectedValueOnce(new Error('overloaded'));
+    await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+    await handleEvent(textEvent('1番目は駐輪場ある？'), t.deps);
+    expect(textsOf(t.lastReply())[0]).toContain('担当者が確認します');
+    const conv = await t.conversation();
+    expect(conv.handoffNotes.map((n) => [n.text, n.propertyIds])).toEqual([['1番目は駐輪場ある？', ['P1']]]);
+    const log = await t.repos.messages.listByConversation(conv.id);
+    expect(log.at(-1)?.verification).toBe('replaced');
+  });
+});

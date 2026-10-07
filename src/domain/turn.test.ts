@@ -1,0 +1,276 @@
+import { describe, expect, it } from 'vitest';
+import { defaultCalendar, fromJst } from './businessHours';
+import { makeProperty } from './fixtures';
+import { emptySlots } from './slots';
+import { decideTurn, type ConversationSnapshot, type TurnContext, type TurnDecision } from './turn';
+import type { ExtractionResult, Property, SlotOp } from './types';
+
+const calendar = defaultCalendar();
+/** 火曜 23:30（時間外。水曜定休なので連絡は木曜 10/8） */
+const NIGHT = fromJst('2026-10-06', '23:30');
+/** 木曜 12:00（営業時間内） */
+const NOON = fromJst('2026-10-08', '12:00');
+
+function ex(partial: Partial<ExtractionResult> = {}): ExtractionResult {
+  return { intent: 'conditions', ops: [], targetPositions: [], viewingTimes: [], forbiddenTopic: null, ...partial };
+}
+
+function fresh(): ConversationSnapshot {
+  return { state: 'hearing', slots: emptySlots(), shownPropertyIds: [], priorityAskedCount: 0, booking: null };
+}
+
+function ctx(properties: Property[], now = NOON): TurnContext {
+  return { now, calendar, properties };
+}
+
+const AREA_AND_BUDGET: SlotOp[] = [
+  { op: 'set', key: 'area', value: { stations: ['渋谷'], wards: [] } },
+  { op: 'set', key: 'rentMax', value: 90000 },
+];
+
+/** 渋谷・月額 8.1〜(8+n/1000) 万の物件を n 件 */
+function shibuya(n: number, overrides: Partial<Property> = {}): Property[] {
+  return Array.from({ length: n }, (_, i) =>
+    makeProperty({ id: `S${String(i + 1).padStart(3, '0')}`, rent: 75000 + i * 100, ...overrides }),
+  );
+}
+
+function texts(d: TurnDecision): string[] {
+  return d.replies.filter((r) => r.type === 'text').map((r) => (r as { text: string }).text);
+}
+
+function search(props: Property[], ops: SlotOp[] = AREA_AND_BUDGET, conv = fresh(), now = NOON) {
+  return decideTurn(conv, { kind: 'text', text: '渋谷で9万まで', extraction: ex({ ops }) }, ctx(props, now));
+}
+
+describe('ヒアリングと検索', () => {
+  it('友だち追加: AI の一次対応を明示し、時間外ならその旨も', () => {
+    const d = decideTurn(fresh(), { kind: 'follow' }, ctx([], NIGHT));
+    expect(texts(d)[0]).toContain('AI が一次対応');
+    expect(texts(d)[0]).toContain('営業時間外');
+    expect(d.quickReplies.map((q) => q.label)).toContain('渋谷');
+  });
+
+  it('エリアだけなら予算を1つだけ聞き返す', () => {
+    const d = search(shibuya(3), [AREA_AND_BUDGET[0]]);
+    expect(texts(d)).toEqual([expect.stringContaining('ご予算')]);
+    expect(d.quickReplies.map((q) => q.label)).toContain('9万円まで');
+    expect(d.next.state).toBe('hearing');
+  });
+
+  it('エリアと予算が揃ったら優先順位を聞かずに即検索し、5件ずつ見せる', () => {
+    const d = search(shibuya(8));
+    expect(texts(d)[0]).toContain('8件あります');
+    expect(texts(d)[0]).toContain('外せない: 渋谷エリア・予算9万円以内');
+    const carousel = d.replies.find((r) => r.type === 'carousel')!;
+    expect(carousel).toMatchObject({ startPosition: 1, hasMore: true });
+    expect(d.next.shownPropertyIds).toEqual(['S001', 'S002', 'S003', 'S004', 'S005']);
+    expect(d.next.state).toBe('presenting');
+    expect(d.quickReplies.map((q) => q.label)).toEqual(['もっと見る']);
+  });
+
+  it('「もっと見る」で次の5件（表示番号は続き）', () => {
+    const props = shibuya(8);
+    const first = search(props);
+    const d = decideTurn(first.next, { kind: 'more' }, ctx(props));
+    expect(d.replies[0]).toMatchObject({ type: 'carousel', startPosition: 6, hasMore: false });
+    expect(d.next.shownPropertyIds).toHaveLength(8);
+    const end = decideTurn(d.next, { kind: 'more' }, ctx(props));
+    expect(texts(end)[0]).toContain('以上');
+  });
+
+  it('最初のターンが営業時間外なら冒頭で案内する', () => {
+    const d = search(shibuya(3), AREA_AND_BUDGET, fresh(), NIGHT);
+    expect(texts(d)[0]).toContain('営業時間外');
+  });
+});
+
+describe('優先順位と緩和', () => {
+  it('0件なら、must を下げて増える条件を具体的に提案する', () => {
+    const props = [...shibuya(7, { tags: ['バストイレ別'] }), ...shibuya(1, { id: 'X001', tags: ['オートロック'] })];
+    const ops: SlotOp[] = [
+      ...AREA_AND_BUDGET,
+      { op: 'addTag', tag: 'バストイレ別', priority: 'must' },
+      { op: 'addTag', tag: 'オートロック', priority: 'must' },
+    ];
+    const d = search(props, ops);
+    expect(texts(d)).toEqual([
+      expect.stringContaining('見つかりませんでした'),
+      'オートロックを「できれば」にすると7件増えます。条件を変えますか？',
+    ]);
+    expect(d.quickReplies.map((q) => q.label)).toEqual(['条件を変える', 'このままにする']);
+
+    const accept = d.quickReplies[0].action;
+    if (accept.kind !== 'event') throw new Error('postback のはず');
+    const after = decideTurn(d.next, accept.event, ctx(props));
+    expect(texts(after)[0]).toContain('7件あります');
+    expect(after.next.slots.tags.find((t) => t.value === 'オートロック')?.priority).toBe('want');
+  });
+
+  it('「このままにする」は条件を変えない', () => {
+    const d = decideTurn(fresh(), { kind: 'relax', ref: { kind: 'tag', tag: 'オートロック' }, accept: false }, ctx([]));
+    expect(d.next).toEqual(fresh());
+  });
+
+  it('20件超なら結果を見せたうえで外せない条件を1回だけ聞く', () => {
+    const props = shibuya(25);
+    const ops: SlotOp[] = [...AREA_AND_BUDGET, { op: 'addTag', tag: 'オートロック' }, { op: 'set', key: 'floorMin', value: 2 }];
+    const d = search(props, ops);
+    expect(d.replies.map((r) => r.type)).toEqual(['text', 'carousel', 'text']);
+    expect(texts(d)[1]).toContain('外せない条件はどれですか');
+    expect(d.quickReplies.map((q) => q.label)).toEqual(['2階以上', 'オートロック', 'もっと見る']);
+    expect(d.next.priorityAskedCount).toBe(1);
+
+    const again = search(props, ops, d.next);
+    expect(texts(again)).toHaveLength(1);
+  });
+
+  it('選ばれた条件を must に上げて検索し直す', () => {
+    const props = [...shibuya(3, { floor: 1 }), ...shibuya(2, { id: 'H001', floor: 5 })];
+    const conv = search(props, [...AREA_AND_BUDGET, { op: 'set', key: 'floorMin', value: 2 }]).next;
+    const d = decideTurn(conv, { kind: 'priority', ref: { kind: 'slot', key: 'floorMin' } }, ctx(props));
+    expect(d.next.slots.floorMin?.priority).toBe('must');
+    expect(texts(d)[0]).toContain('2件あります');
+  });
+});
+
+describe('質問と引き継ぎ', () => {
+  it('「2番目の物件は？」は提示リストから解決して回答生成に回す', () => {
+    const props = shibuya(5);
+    const conv = search(props).next;
+    const d = decideTurn(
+      conv,
+      { kind: 'text', text: '2番目は駐輪場ある？', extraction: ex({ intent: 'propertyQuestion', targetPositions: [2] }) },
+      ctx(props),
+    );
+    expect(d.replies[0]).toMatchObject({ type: 'answer', question: '2番目は駐輪場ある？' });
+    const answer = d.replies[0] as Extract<TurnDecision['replies'][number], { type: 'answer' }>;
+    expect(answer.targets.map((t) => [t.property.id, t.position])).toEqual([['S002', 2]]);
+    expect(d.next.state).toBe('qa');
+  });
+
+  it('対象が分からなければ番号で聞き返す', () => {
+    const d = decideTurn(
+      search(shibuya(5)).next,
+      { kind: 'text', text: 'ここ駐輪場ある？', extraction: ex({ intent: 'propertyQuestion' }) },
+      ctx(shibuya(5)),
+    );
+    expect(texts(d)[0]).toContain('番号');
+  });
+
+  it('禁止トピックは答えずに引き継ぎ、時間外なら連絡日を具体的に示す', () => {
+    const d = decideTurn(
+      fresh(),
+      { kind: 'text', text: 'この辺の治安どう？', extraction: ex({ intent: 'propertyQuestion', forbiddenTopic: 'safety' }) },
+      ctx([], NIGHT),
+    );
+    expect(texts(d)).toEqual([expect.stringContaining('10月8日(木)に担当者からご連絡します')]);
+    expect(d.handoffNote).toEqual({ text: 'この辺の治安どう？', topic: 'safety', propertyIds: [] });
+    expect(d.replies.some((r) => r.type === 'answer')).toBe(false);
+  });
+
+  it('対象物件を引き継ぎメモに残す（「1番目の物件、空いてますか？」）', () => {
+    const props = shibuya(3);
+    const d = decideTurn(
+      search(props).next,
+      {
+        kind: 'text',
+        text: '1番目の物件、空いてますか？',
+        extraction: ex({ intent: 'handoff', forbiddenTopic: 'vacancy', targetPositions: [1] }),
+      },
+      ctx(props),
+    );
+    expect(d.handoffNote).toEqual({ text: '1番目の物件、空いてますか？', topic: 'vacancy', propertyIds: ['S001'] });
+  });
+
+  it('同じ発話の条件変更は捨てずに当て、引き継ぎ文に続けて検索結果を出す', () => {
+    const d = decideTurn(
+      fresh(),
+      {
+        kind: 'text',
+        text: '渋谷で9万以内、あと空いてますか？',
+        extraction: ex({ intent: 'conditions', ops: AREA_AND_BUDGET, forbiddenTopic: 'vacancy' }),
+      },
+      ctx(shibuya(3)),
+    );
+    expect(d.replies.map((r) => r.type)).toEqual(['text', 'text', 'carousel']);
+    expect(texts(d)[0]).toContain('空室状況については担当者が確認します');
+    expect(d.next.slots.rentMax?.value).toBe(90000);
+    expect(d.next.state).toBe('presenting');
+    expect(d.handoffNote?.topic).toBe('vacancy');
+  });
+});
+
+describe('内見の仮受付', () => {
+  const props = shibuya(3);
+  const presented = () => search(props, AREA_AND_BUDGET, fresh(), NIGHT).next;
+
+  it('「内見を希望」→ 翌営業日以降の候補日（定休日を除く）を出す', () => {
+    const d = decideTurn(presented(), { kind: 'viewing', propertyId: 'S001' }, ctx(props, NIGHT));
+    expect(d.next.state).toBe('booking');
+    expect(d.next.booking).toEqual({ propertyId: 'S001', candidateTimes: [] });
+    expect(d.quickReplies.map((q) => q.label)).toEqual(['10月8日(木)', '10月9日(金)', '10月10日(土)', '10月11日(日)', '10月12日(月)']);
+  });
+
+  it('候補日を2つ選ぶと受け付け、確定はしない（担当者が確定する）', () => {
+    const c = ctx(props, NIGHT);
+    const d1 = decideTurn(presented(), { kind: 'viewing', propertyId: 'S001' }, c);
+    const d2 = decideTurn(d1.next, { kind: 'viewingDay', date: '2026-10-08' }, c);
+    expect(d2.viewingRequest).toBeNull();
+    expect(d2.quickReplies.map((q) => q.label)).toContain('この日時で送る');
+    expect(d2.quickReplies.map((q) => q.label)).not.toContain('10月8日(木)');
+    const d3 = decideTurn(d2.next, { kind: 'viewingDay', date: '2026-10-10' }, c);
+    expect(d3.viewingRequest).toEqual({ propertyId: 'S001', candidateTimes: ['2026-10-08', '2026-10-10'] });
+    expect(d3.next).toMatchObject({ state: 'handed_off', booking: null });
+    expect(texts(d3)[0]).toContain('まだ予約は確定していません');
+    expect(texts(d3)[0]).toContain('10月8日(木)に担当者から確定のご連絡');
+  });
+
+  it('自由文の日時: 当日・定休日は落として理由を伝える', () => {
+    const d = decideTurn(
+      presented(),
+      {
+        kind: 'text',
+        text: '1番目を明日の14時か8日の15時に見たい',
+        extraction: ex({ intent: 'viewingRequest', targetPositions: [1], viewingTimes: ['2026-10-07T14:00', '2026-10-08T15:00'] }),
+      },
+      ctx(props, NIGHT),
+    );
+    expect(d.viewingRequest).toBeNull();
+    expect(d.next.booking).toEqual({ propertyId: 'S001', candidateTimes: ['2026-10-08T15:00'] });
+    expect(texts(d)[0]).toContain('10月8日(木)以降');
+  });
+
+  it('番号の指定が無ければ、提示1件目より聞き取り中の物件を優先する（古いカードの「内見を希望」）', () => {
+    const one = [makeProperty({ id: 'A001' }), makeProperty({ id: 'B001' })];
+    const conv: ConversationSnapshot = {
+      ...fresh(),
+      state: 'booking',
+      slots: search(one).next.slots,
+      shownPropertyIds: ['A001'],
+      booking: { propertyId: 'B001', candidateTimes: [] },
+    };
+    const d = decideTurn(
+      conv,
+      {
+        kind: 'text',
+        text: '8日の14時と9日の10時で',
+        extraction: ex({ intent: 'viewingRequest', viewingTimes: ['2026-10-08T14:00', '2026-10-09T10:00'] }),
+      },
+      ctx(one, NIGHT),
+    );
+    expect(d.viewingRequest?.propertyId).toBe('B001');
+  });
+
+  it('1件だけでも「この日時で送る」で受け付ける', () => {
+    const conv: ConversationSnapshot = { ...presented(), booking: { propertyId: 'S002', candidateTimes: ['2026-10-09T11:00'] } };
+    const d = decideTurn(conv, { kind: 'bookingSubmit' }, ctx(props, NIGHT));
+    expect(d.viewingRequest).toEqual({ propertyId: 'S002', candidateTimes: ['2026-10-09T11:00'] });
+  });
+
+  it('非公開になった物件は受け付けない', () => {
+    const d = decideTurn(presented(), { kind: 'viewing', propertyId: 'GONE' }, ctx(props, NIGHT));
+    expect(d.viewingRequest).toBeNull();
+    expect(texts(d)[0]).toContain('ご案内できません');
+  });
+});

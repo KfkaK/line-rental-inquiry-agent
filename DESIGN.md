@@ -79,7 +79,7 @@ flowchart TD
     C --> S[物件検索 tool use<br/>条件→パラメータ化SQL]
     S --> P[物件カード提示]
     S -- 物件への質問 --> G[回答生成＋根拠検証<br/>DBの項目と照合]
-    G -- DBにない情報・範囲外 --> H[担当者に引き継ぎ<br/>AI自動応答を停止]
+    G -- DBにない情報・範囲外 --> H[担当者に引き継ぎ<br/>質問をメモに残し、AIは物件探しを続ける]
     P -- 内見希望ボタン --> B[内見の候補日時を受付]
     G --> B
     B -- 担当者へ通知 --> K[担当者が確定・却下<br/>管理画面 → LINE通知]
@@ -96,20 +96,21 @@ flowchart TD
 | 提示物件への質問 | セッションに保存した提示リスト（表示順とID）から対象を解決し、DBの項目のみで回答 | presenting / qa |
 | 内見希望 | 物件IDと候補日時を集め、揃ったら担当者へ通知 | booking → handed_off |
 | 範囲外・雑談 | 定型で「物件探しのお手伝いをします」と戻す | 変化なし |
-| 引き継ぎが必要 | 「担当者が確認します」と返し、会話を handed_off に | handed_off |
+| 引き継ぎが必要 | 「担当者が確認します」と返し、質問を `handoff_notes` に残す（朝の一覧の「AIが聞き取れなかったこと」）。AIの応答は止めない（止めるのは担当者の手動返信だけ。3.4） | 変化なし |
 
 ### 3.2 条件スロット
 
 | スロット | 型 | 正規化の例 |
 | --- | --- | --- |
 | エリア | 駅名（複数可）または区 | 「渋谷」→渋谷駅、「渋谷区」は区として扱う |
-| 予算上限 | 円 | 「7万」「7.0万円」「7万以内」→ 70000 |
+| 予算上限 | 円（家賃＋管理費と比べる） | 「7万」「7.0万円」「7万以内」→ 70000 |
 | 間取り | 列挙（1R/1K/1DK/1LDK/2K/2DK/2LDK…） | 「ワンルーム」→1R |
 | 駅徒歩 | 分 | 「駅近」→ 10分以内 |
-| こだわり | タグの集合 | ペット可、独立洗面台、2階以上、静か、日当たり |
+| 階 | 下限 | 「2階以上」→ 2 |
+| こだわり | タグの集合 | ペット可、独立洗面台、静か、日当たり良好 |
 | 入居時期 | 年月 | 「来月」→ JSTで翌月 |
 
-表記ゆれの正規化辞書はLLMの前段に置く。抽出精度はモデルよりここで決まることが多い。
+表記ゆれの正規化辞書はLLMの前段に置く。抽出精度はモデルよりここで決まることが多い。スロットとタグの語彙の正は `src/domain/types.ts`。
 
 ### 3.2.1 条件の優先度
 
@@ -117,7 +118,7 @@ flowchart TD
 
 | 優先度 | 意味 | 検索での扱い | 抽出の手がかり |
 | --- | --- | --- | --- |
-| must | 外せない | 絞り込み条件（WHERE） | 「絶対」「必須」「じゃないと無理」、優先順位確認で選ばれた条件 |
+| must | 外せない | 絞り込み条件（全か無か） | 「絶対」「必須」「じゃないと無理」、優先順位確認で選ばれた条件 |
 | want | できれば欲しい | スコア加点（重み2） | 「できれば」「なるべく」「あったら嬉しい」、普通に挙げた条件の既定値 |
 | nice | あれば嬉しい | スコア加点（重み1） | 「どっちでもいい」「あれば」、トレードオフ質問で「なくてもいい」と答えた条件 |
 
@@ -125,10 +126,10 @@ flowchart TD
 
 ```json
 {
-  "area":   { "value": ["渋谷", "中目黒"], "priority": "must" },
-  "rent_max": { "value": 90000, "priority": "must" },
-  "walk_min": { "value": 10, "priority": "want" },
-  "floor_min": { "value": 2, "priority": "want" },
+  "area":     { "value": { "stations": ["渋谷", "中目黒"], "wards": [] }, "priority": "must" },
+  "rentMax":  { "value": 90000, "priority": "must" },
+  "walkMax":  { "value": 10, "priority": "want" },
+  "floorMin": { "value": 2, "priority": "want" },
   "tags": [
     { "value": "バストイレ別", "priority": "must" },
     { "value": "オートロック", "priority": "nice" }
@@ -140,7 +141,7 @@ flowchart TD
 
 - 初回はエリアと予算を must、それ以外は want として扱う（明示がなければ）。この2つが揃った時点で検索し、先に優先順位を聞かない
 - 優先順位を聞くのは、結果が0件（「どれを緩められますか？」）または20件超（「外せない条件はどれですか？」）のときだけ。1会話で1回まで。選ばれたものを must に昇格、または want に降格
-- 数値条件は段階的に評価する。徒歩10分 want に対し12分の物件は部分点（0.6）を与え、全か無かにしない
+- 数値条件は段階的に評価する。徒歩10分 want に対し12分の物件は部分点（0.6）を与え、全か無かにしない（徒歩は上限＋3分、予算は上限＋5,000円まで部分点。値は `src/domain/rules.ts`）
 - 優先度の変更発話（「やっぱり2階以上は必須」「オートロックはなくてもいい」）は条件変更と同じ経路で差分更新する
 
 ### 3.3 複数物件の参照
@@ -178,9 +179,9 @@ flowchart TD
 ### 4.2 検索の使い分け
 
 - **構造化検索（主）**: エリア・予算・間取り・徒歩・入居時期・タグは、列挙型と範囲指定だけを受けるパラメータ化関数で検索する。SQL文そのものはLLMに書かせない
-- **2段階の検索**: must条件でWHERE絞り込み → 残った物件を want/nice の一致スコアで並べる。スコア計算はコードで行い、LLMには関与させない（再現性と説明可能性のため）
-- **一致の内訳を返す**: 検索関数は各物件に `matched: ["徒歩10分以内", "2階以上"]`, `unmatched: ["オートロック"]`, `score: 0.8` を付けて返し、回答生成とFlexカードの両方で使う
-- **候補が少ないときの緩和**: must条件を1つずつ want に下げて件数を試算し、「オートロックを『できれば』にすると7件増えます」と最も効果の大きい1つを提案する。従来の「予算+5,000円 → 徒歩+5分 → 隣接駅」の緩和もフォールバックとして残す
+- **2段階の検索**: must条件で絞り込み → 残った物件を want/nice の一致スコアで並べる（スコア降順 → 月額の安い順 → 物件ID昇順）。絞り込みもスコア計算もコードの純関数（`src/domain/search.ts`）で行い、LLMには関与させない（再現性と説明可能性のため）。絞り込みはSQLのWHEREではなく、公開物件を全件取得してから行う（数百〜数千件なら十分速く、緩和の試算が同じ関数で済む。意思決定ログ2）
+- **一致の内訳を返す**: 検索関数は各物件に `matched: ["徒歩10分以内", "2階以上"]`, `unmatched: ["オートロックなし"]`, `score: 0.8` を付けて返し、回答生成とFlexカードの両方で使う。`unmatched` はそのまま表示できる不足の説明（「徒歩12分」「月額9.3万円」など）
+- **候補が少ないときの緩和**: must条件を1つずつ want に下げて件数を試算し、「オートロックを『できれば』にすると7件増えます」と最も効果の大きい1つを提案する。エリア・予算・徒歩は下げずに（エリア外や予算超えまで混ざるため）、従来の「予算+5,000円 → 徒歩+5分 → 隣接駅」の緩和で扱う。下げて増える条件が無いときにこちらを提案する（`src/domain/relax.ts`）
 - **タグ化（曖昧希望の主な受け皿）**: 「静か」「日当たり良好」「ペット可」などは取込時に備考から抽出して構造化列にする。200件なら十分で、評価も説明もしやすい
 - **ベクトル検索（補助・後回し）**: タグに載らない自由文の希望を備考文で検索。埋め込みはClaude APIにないため外部の埋め込みAPIが必要になる。Week3以降に余裕があれば入れる
 
@@ -200,23 +201,27 @@ flowchart TD
 
 ## 5. データ設計
 
-テーブルは6つ。会話の状態と提示済み物件リストを `conversations` に持たせ、AIの判断根拠を `messages` に残す。
+テーブルは8つ（スキーマの正は `supabase/migrations/`）。会話の状態と提示済み物件リストを `conversations` に持たせ、AIの判断根拠を `messages` に残す。
 
 | テーブル | 主な列 | 用途 |
 | --- | --- | --- |
-| properties | id, name, address, ward, station(配列), walk_min, rent, management_fee, deposit_months, key_money_months, layout, area_sqm, floor, built_year, tags(配列), note, available_from, status(公開/非公開) | 物件マスタ。CSVから取込 |
+| properties | id, name, address, ward, access(JSON: `[{station, walk_min}]`、先頭が最寄り、1〜3件), rent, management_fee, deposit_months, key_money_months, layout, area_sqm, floor, built_year, tags(配列), note, available_from, status(public/private), updated_at | 物件マスタ。CSVから取込 |
 | line_users | id, line_user_id, display_name, created_at | LINEユーザー |
-| conversations | id, line_user_id, state(hearing/presenting/qa/booking/handed_off), slots(JSON), shown_property_ids(配列、表示順), ai_paused(bool), paused_at, updated_at | 会話の状態 |
+| conversations | id, line_user_id, state(hearing/presenting/qa/booking/handed_off), slots(JSON), shown_property_ids(配列、表示順), shown_offset, last_search_total, priority_asked_count, ai_paused(bool), paused_at, last_staff_reply_at, booking(JSON: 内見の聞き取り途中), handoff_notes(JSON: 担当者へ回した質問), created_at, updated_at | 会話の状態。1 LINEユーザー1会話 |
 | messages | id, conversation_id, role(user/ai/staff), text, intent, slot_diff(JSON), tool_calls(JSON), verification(ok/replaced), latency_ms, cost_usd, created_at | 会話ログと計測値 |
-| viewing_requests | id, conversation_id, property_id, candidate_times(配列), status(pending/confirmed/rejected), confirmed_time, staff_note, received_outside_hours(bool), created_at | 内見の仮受付。時間外受付かを記録し、効果測定に使う |
-| business_hours | weekday(0-6), open_time, close_time, is_closed | 営業時間設定。祝日は `holidays` テーブルまたは固定リストで扱う |
+| viewing_requests | id, conversation_id, property_id, candidate_times(配列), status(pending/in_progress/confirmed/rejected), confirmed_time, staff_note, received_outside_hours(bool), created_at, updated_at | 内見の仮受付。時間外受付かを記録し、効果測定に使う |
+| business_hours | weekday(0-6), open_time, close_time, is_closed | 営業時間設定（初期値: 10〜19時・水曜定休） |
+| holidays | date, name | 祝日・臨時休業。年ごとに管理画面で設定する |
+| webhook_events | webhook_event_id, received_at | 再送による二重処理の防止 |
 | staff_users | Supabase Authのusersを利用 | 管理画面ログイン |
 
 補足:
 
-- `properties.tags` は取込時にLLMが備考から抽出した値。検索はこの列と数値列で行う
-- `messages.verification` と `latency_ms` `cost_usd` を最初から記録し、評価レポートはこのテーブルから集計する
+- `properties.tags` は取込時にLLMが備考から抽出した値（敷金なし・礼金なしは数値列から決める）。検索はこの列と数値列で行う
+- `messages.verification` と `latency_ms` `cost_usd` を最初から記録し、評価レポートはこのテーブルから集計する。1日の費用上限は `sum_message_cost_since()` で集計する
 - `line_user_id` は個人情報なので、管理画面では表示名のみ見せる
+- 全テーブルで RLS を有効にし、Webhook は service role で読み書きする。管理画面のログイン済み担当者には必要な select/insert/update だけを許す。anon には何も許さない
+- 会話ログの90日削除は `purge_old_messages()`（スケジュールは後で設定）
 - ベクトル検索を入れる場合は `properties.note_embedding`（pgvector）を後から追加する
 
 架空データ200件は、山手線・中央線・東急東横線沿いの駅を中心に、家賃6〜18万円、1R〜2LDKを分散させて生成する。実在の物件名・住所は使わない。
