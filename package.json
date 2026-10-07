@@ -10,6 +10,7 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "data:generate": "tsx scripts/generate-properties.ts",
     "check:contrast": "node scripts/check-contrast.js",
     "check": "npm run typecheck && npm run lint && npm test && npm run check:contrast"
   },
