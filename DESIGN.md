@@ -53,10 +53,10 @@ AIが担うのは「ヒアリング → 検索 → 提示 → 質問回答 → �
 
 | 機能 | 内容 |
 | --- | --- |
-| 朝の引き継ぎ一覧 | 前回の営業終了以降に届いた案件を「夜間・休日分」としてまとめて表示し、それより前で手が要るもの（未対応・対応中の内見、未対応の引き継ぎメモ）を「それ以前の未対応」に残す。各行に「希望物件・候補日時・AIが聞き取れなかったこと」を1行で要約し、担当者が上から順に（届いた順）確定していける。内見の無い会話の引き継ぎメモも1行にする。ステータス: 未対応 / 対応中 / 確定 / 却下 |
+| 朝の引き継ぎ一覧 | 前回の営業終了以降に届いた案件を「夜間・休日分」としてまとめて表示し、それより前で手が要るもの（未対応・対応中の内見、未対応の引き継ぎメモ）を「それ以前の未対応」に残す。各行に「希望物件・候補日時・AIが聞き取れなかったこと」を1行で要約し、担当者が上から順に（届いた順）確定していける。内見の無い会話の引き継ぎメモも1行にする。ステータス: 未対応 / 対応中 / 確定 / 却下 / 手動で対応済み |
 | 会話ログ | 1ユーザーの会話を時系列で閲覧。AIの回答と検索に使った条件（優先度つき）を表示。引き継ぎメモは「対応済みにする」で一覧から外す（見た件数までを対応済みにし、後から届いたメモは残す） |
 | 営業時間設定 | 曜日ごとの営業時間と定休日、祝日・臨時休業を設定。AIの時間外案内と内見候補日の提示に使う。営業日が無い・翌営業日が決められない設定は保存しない |
-| 内見の確定・却下 | 候補日時から1つ選び時刻を入れて確定（日付は利用者の候補から選ぶ。開始時刻はその日の営業時間内に限り、時間外・休業日は確定できない。例外で受けるなら担当者が手動返信で利用者と調整する）、または理由付きで却下。ユーザーへLINE通知（「【担当者より】」で始まる文）。確定・却下は戻せない。AIの自動応答は止めない |
+| 内見の確定・却下 | 候補日時から1つ選び時刻を入れて確定（日付は利用者の候補から選ぶ。開始時刻はその日の営業時間内に限り、時間外・休業日は確定できない。例外で受けるなら担当者が手動返信で利用者と調整し、「手動で対応済み」で記録を閉じる。これは利用者に何も送らず、取り決めた日時と経緯のメモが必須で、その仮受付の後に手動返信した会話にだけ出す）、または理由付きで却下。ユーザーへLINE通知（「【担当者より】」で始まる文）。確定・却下は戻せない。AIの自動応答は止めない |
 | 手動返信 | 担当者がLINEへ返信。送る前にAI自動応答を停止し、担当者が「AIに戻す」で再開（最終の担当者返信から24時間でも自動で再開） |
 | 物件CSVインポート | CSVで物件を一括登録・更新。取込時に備考からタグを自動抽出。MVP では CLI（`npm run data:import`）で行い、アップロード画面は後回し |
 | 認証 | Supabase Authのメール＋パスワード。ロールは `app_metadata.role` の「担当者（staff）」と「閲覧用（viewer）」。閲覧用は公開デモ用で、読み取りだけ・会話はデモ会話に限る（RLS で強制）。ロールの無いアカウントは何も読めない。アカウントは `npm run admin:user` で作る（Sign-ups は無効） |
@@ -210,7 +210,7 @@ flowchart TD
 | line_users | id, line_user_id, display_name, created_at | LINEユーザー |
 | conversations | id, line_user_id, state(hearing/presenting/qa/booking/handed_off), slots(JSON), shown_property_ids(配列、表示順), shown_offset, last_search_total, priority_asked_count, ai_paused(bool), paused_at, last_staff_reply_at, booking(JSON: 内見の聞き取り途中), handoff_notes(JSON: 担当者へ回した質問・追記だけ), handoff_resolved_count(先頭から何件を対応済みにしたか), handoff_open_count(生成列: 未対応の数), is_demo(閲覧用に見せるデモ会話), created_at, updated_at | 会話の状態。1 LINEユーザー1会話 |
 | messages | id, conversation_id, role(user/ai/staff), text, intent, slot_diff(JSON), tool_calls(JSON), verification(ok/replaced), latency_ms, cost_usd, created_at | 会話ログと計測値 |
-| viewing_requests | id, conversation_id, property_id, candidate_times(配列), status(pending/in_progress/confirmed/rejected), confirmed_time, staff_note, received_outside_hours(bool), created_at, updated_at | 内見の仮受付。時間外受付かを記録し、効果測定に使う |
+| viewing_requests | id, conversation_id, property_id, candidate_times(配列), status(pending/in_progress/confirmed/rejected/closed_manually), confirmed_time, staff_note, received_outside_hours(bool), created_at, updated_at | 内見の仮受付。時間外受付かを記録し、効果測定に使う |
 | business_hours | weekday(0-6), open_time, close_time, is_closed | 営業時間設定（初期値: 10〜19時・水曜定休） |
 | holidays | date, name | 祝日・臨時休業。年ごとに管理画面で設定する |
 | webhook_events | webhook_event_id, received_at | 再送による二重処理の防止 |
