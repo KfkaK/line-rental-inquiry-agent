@@ -116,6 +116,44 @@ describe('優先順位と緩和', () => {
     expect(after.next.slots.tags.find((t) => t.value === 'オートロック')?.priority).toBe('want');
   });
 
+  it('0件で1つ緩めても増えないなら、緩められる条件を聞いて「できれば」に下げて探し直す（行き止まりにしない）', () => {
+    // 予算5万（must）に対して相場が12万。予算＋5,000円でも、オートロックを下げても0件のまま
+    const props = shibuya(3, { rent: 120000, tags: ['オートロック'] });
+    const ops: SlotOp[] = [
+      { op: 'set', key: 'area', value: { stations: ['渋谷'], wards: [] } },
+      { op: 'set', key: 'rentMax', value: 50000, priority: 'must' },
+      { op: 'addTag', tag: 'オートロック', priority: 'must' },
+    ];
+    const d = search(props, ops);
+    expect(texts(d)).toEqual([expect.stringContaining('見つかりませんでした'), expect.stringContaining('どの条件なら緩められそうですか')]);
+    // エリアはボタンに出さない
+    expect(d.quickReplies.map((q) => q.label)).toEqual(['予算5万円以内', 'オートロック']);
+    expect(d.next.priorityAskedCount).toBe(1);
+
+    const loosen = d.quickReplies[0].action;
+    if (loosen.kind !== 'event') throw new Error('postback のはず');
+    expect(loosen.event).toEqual({ kind: 'loosen', ref: { kind: 'slot', key: 'rentMax' } });
+    const after = decideTurn(d.next, loosen.event, ctx(props));
+    expect(after.next.slots.rentMax?.priority).toBe('want');
+    expect(texts(after)[0]).toContain('3件あります');
+  });
+
+  it('0件で緩める条件を聞くのは1会話1回まで。2回目以降と、聞ける条件が無いときは条件の変え方の例を返す', () => {
+    const props = shibuya(3, { rent: 120000 });
+    const ops: SlotOp[] = [
+      { op: 'set', key: 'area', value: { stations: ['渋谷'], wards: [] } },
+      { op: 'set', key: 'rentMax', value: 50000, priority: 'must' },
+    ];
+    const asked = search(props, ops, { ...fresh(), priorityAskedCount: 1 });
+    expect(texts(asked)).toEqual([expect.stringContaining('見つかりませんでした'), expect.stringContaining('条件を変えて送ってください')]);
+    expect(asked.quickReplies).toEqual([]);
+
+    // エリアだけが外せない条件（エリアに物件が無い）
+    const areaOnly = search([], [{ op: 'set', key: 'area', value: { stations: ['渋谷'], wards: [] } }, { op: 'set', key: 'rentMax', value: 90000, priority: 'want' }]);
+    expect(texts(areaOnly).at(-1)).toContain('条件を変えて送ってください');
+    expect(areaOnly.next.priorityAskedCount).toBe(0);
+  });
+
   it('「このままにする」は条件を変えない', () => {
     const d = decideTurn(fresh(), { kind: 'relax', ref: { kind: 'tag', tag: 'オートロック' }, accept: false }, ctx([]));
     expect(d.next).toEqual(fresh());
