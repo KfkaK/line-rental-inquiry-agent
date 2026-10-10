@@ -6,7 +6,7 @@ import { hoursOn } from '@/domain/businessHours';
 import { formatManYen } from '@/domain/labels';
 import { formatViewingTime } from '@/domain/messages';
 import { monthlyCost } from '@/domain/search';
-import { openHandoffNotes, VIEWING_STATUS_LABEL } from '@/domain/staff';
+import { canCloseManually, openHandoffNotes, VIEWING_STATUS_LABEL } from '@/domain/staff';
 import type { Property, ViewingStatus } from '@/domain/types';
 import { requireAdmin } from '@/server/admin/session';
 import { ViewingActions } from '../../_components/ViewingActions';
@@ -34,7 +34,11 @@ async function ViewingContent({ params }: { params: PageProps<'/admin/viewings/[
   const { user, repos } = await requireAdmin();
   const viewing = await repos.viewingRequests.getById(id);
   if (!viewing) notFound();
-  const [[property], calendar] = await Promise.all([repos.properties.getByIds([viewing.propertyId]), repos.businessCalendar.get()]);
+  const [[property], calendar, conversation] = await Promise.all([
+    repos.properties.getByIds([viewing.propertyId]),
+    repos.businessCalendar.get(),
+    repos.conversations.getSummary(viewing.conversationId),
+  ]);
   const openNotes = openHandoffNotes(viewing.handoffNotes, viewing.handoffResolvedCount);
   const canEdit = user.role === 'staff';
 
@@ -111,6 +115,7 @@ async function ViewingContent({ params }: { params: PageProps<'/admin/viewings/[
             hours: hoursOn(value.slice(0, 10), calendar),
           }))}
           isDemo={viewing.isDemo}
+          canCloseManually={canCloseManually(viewing.createdAt, conversation?.lastStaffReplyAt ?? null)}
         />
       ) : (
         <p className="text-sm text-muted">閲覧用のアカウントでは、確定・却下などの操作はできません。</p>
@@ -152,7 +157,7 @@ function PropertySummary({ property, fallbackName, propertyId }: { property: Pro
   );
 }
 
-/** 確定・却下した後の結果。それ以外は何も出さない */
+/** 確定・却下・手動で対応済みにした後の結果。それ以外は何も出さない */
 function Result({
   status,
   confirmedTime,
@@ -166,18 +171,22 @@ function Result({
   updatedAt: string;
   isDemo: boolean;
 }) {
-  if (status !== 'confirmed' && status !== 'rejected') return null;
-  const sent = isDemo
-    ? 'デモの会話のため LINE には送っていません。'
-    : '利用者に送った文は会話ログで確かめられます（LINE に送れなかったときは会話ログに残りません）。';
+  if (status !== 'confirmed' && status !== 'rejected' && status !== 'closed_manually') return null;
+  const sent =
+    status === 'closed_manually'
+      ? '手動返信で取り決めた記録です。この操作では利用者に何も送っていません。'
+      : isDemo
+        ? 'デモの会話のため LINE には送っていません。'
+        : '利用者に送った文は会話ログで確かめられます（LINE に送れなかったときは会話ログに残りません）。';
+  const noteLabel = status === 'confirmed' ? 'ひとこと' : status === 'rejected' ? '却下の理由' : '取り決めた内容';
   return (
     <section aria-labelledby="result-heading" className={`${cardClass} space-y-3`}>
       <h2 id="result-heading" className="text-base font-semibold">
-        {VIEWING_STATUS_LABEL[status]}した結果
+        {status === 'closed_manually' ? '手動で対応済みにした記録' : `${VIEWING_STATUS_LABEL[status]}した結果`}
       </h2>
       <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-[8rem_1fr]">
         {status === 'confirmed' && confirmedTime && <Row label="確定した日時">{formatViewingTime(confirmedTime)}</Row>}
-        <Row label={status === 'confirmed' ? 'ひとこと' : '却下の理由'}>
+        <Row label={noteLabel}>
           {staffNote ? <span className="whitespace-pre-wrap">{staffNote}</span> : <span className="text-muted">なし</span>}
         </Row>
         <Row label="対応した時刻">{formatJstDateTime(updatedAt)}</Row>

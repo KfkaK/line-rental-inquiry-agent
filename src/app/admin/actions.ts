@@ -10,6 +10,7 @@ import { defaultCalendar } from '@/domain/businessHours';
 import type { BusinessCalendar } from '@/domain/types';
 import { isAdminPreview } from '@/server/admin/previewFlag';
 import {
+  closeViewingManually,
   confirmViewing,
   rejectViewing,
   resolveHandoff,
@@ -86,6 +87,11 @@ export async function confirmViewingAction(_prev: FormState, formData: FormData)
 /** フォーム: viewingRequestId・reason（必須。利用者に送る） */
 export async function rejectViewingAction(_prev: FormState, formData: FormData): Promise<FormState> {
   return asStaff((deps) => rejectViewing(deps, { viewingRequestId: text(formData, 'viewingRequestId'), reason: text(formData, 'reason') }));
+}
+
+/** フォーム: viewingRequestId・note（必須。取り決めた日時と経緯。利用者には送らない） */
+export async function closeViewingManuallyAction(_prev: FormState, formData: FormData): Promise<FormState> {
+  return asStaff((deps) => closeViewingManually(deps, { viewingRequestId: text(formData, 'viewingRequestId'), note: text(formData, 'note') }));
 }
 
 /** フォーム: viewingRequestId・status（'pending' | 'in_progress'） */

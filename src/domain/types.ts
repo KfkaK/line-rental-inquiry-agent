@@ -225,8 +225,11 @@ export interface HandoffNote {
   at: string;
 }
 
-/** 内見の仮受付の状態。管理画面の 未対応 / 対応中 / 確定 / 却下。遷移は src/domain/staff.ts */
-export const VIEWING_STATUSES = ['pending', 'in_progress', 'confirmed', 'rejected'] as const;
+/**
+ * 内見の仮受付の状態。管理画面の 未対応 / 対応中 / 確定 / 却下 / 手動で対応済み。遷移は src/domain/staff.ts。
+ * closed_manually は営業時間外の内見などを担当者が手動返信で取り決めたときに、利用者に何も送らずに記録だけを閉じる終わり（意思決定ログ15）
+ */
+export const VIEWING_STATUSES = ['pending', 'in_progress', 'confirmed', 'rejected', 'closed_manually'] as const;
 export type ViewingStatus = (typeof VIEWING_STATUSES)[number];
 
 /** 意図分類＋条件抽出（毎ターン・安いモデル）の出力 */

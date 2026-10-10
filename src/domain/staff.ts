@@ -15,17 +15,19 @@ export const VIEWING_STATUS_LABEL: Record<ViewingStatus, string> = {
   in_progress: '対応中',
   confirmed: '確定',
   rejected: '却下',
+  closed_manually: '手動で対応済み',
 };
 
 /**
- * 遷移できる先。確定・却下は終わり（利用者へ LINE で知らせた後なので戻さない。取り消しは手動返信で伝える）。
+ * 遷移できる先。確定・却下・手動で対応済みは終わり（確定・却下は利用者へ LINE で知らせた後なので戻さない。取り消しは手動返信で伝える）。
  * 未対応 ⇄ 対応中 は担当者の手元の印なので行き来できる
  */
 const TRANSITIONS: Record<ViewingStatus, readonly ViewingStatus[]> = {
-  pending: ['in_progress', 'confirmed', 'rejected'],
-  in_progress: ['pending', 'confirmed', 'rejected'],
+  pending: ['in_progress', 'confirmed', 'rejected', 'closed_manually'],
+  in_progress: ['pending', 'confirmed', 'rejected', 'closed_manually'],
   confirmed: [],
   rejected: [],
+  closed_manually: [],
 };
 
 export function canTransition(from: ViewingStatus, to: ViewingStatus): boolean {
@@ -92,6 +94,19 @@ export function checkStaffReply(raw: string): Result<string> {
 /** 却下の理由（必須。利用者に送る） */
 export function checkRejectReason(raw: string): Result<string> {
   return checkText(raw, '却下の理由', STAFF_NOTE_MAX_CHARS, true);
+}
+
+/** 手動で対応済みのメモ（必須。利用者には送らない。取り決めた日時と経緯を残す） */
+export function checkManualCloseNote(raw: string): Result<string> {
+  return checkText(raw, '取り決めた内容のメモ', STAFF_NOTE_MAX_CHARS, true);
+}
+
+/**
+ * 「手動で対応済み」にできるか。その仮受付が届いた後に担当者が手動返信している（＝利用者とやりとりした）ときだけ。
+ * 時間内の案件をこれで閉じて、利用者に確定の連絡が届かないのを防ぐ（意思決定ログ15）
+ */
+export function canCloseManually(viewingCreatedAt: string, lastStaffReplyAt: string | null): boolean {
+  return lastStaffReplyAt !== null && Date.parse(lastStaffReplyAt) >= Date.parse(viewingCreatedAt);
 }
 
 /** 確定に添える一言（任意。利用者に送る） */

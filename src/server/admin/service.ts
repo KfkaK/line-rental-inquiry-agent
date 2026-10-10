@@ -10,8 +10,10 @@
  */
 import * as msg from '@/domain/messages';
 import {
+  canCloseManually,
   canTransition,
   checkConfirmNote,
+  checkManualCloseNote,
   checkRejectReason,
   checkStaffReply,
   nextResolvedCount,
@@ -132,6 +134,27 @@ export async function rejectViewing(deps: StaffDeps, input: { viewingRequestId: 
     return done(sentMessage(conversation, '却下しました'));
   } catch (error) {
     return unexpected('内見の却下', error);
+  }
+}
+
+/**
+ * 手動で対応済み（意思決定ログ15）。営業時間外の内見などを手動返信で利用者と取り決めたときに、記録だけを閉じる。
+ * 利用者には何も送らない。取り決めた日時と経緯のメモが必須で、その仮受付が届いた後に手動返信した会話だけ
+ */
+export async function closeViewingManually(deps: StaffDeps, input: { viewingRequestId: string; note: string }): Promise<ActionResult> {
+  try {
+    const target = await loadViewing(deps, input.viewingRequestId, 'closed_manually');
+    if ('ok' in target) return target;
+    const { viewing, conversation } = target;
+    if (!canCloseManually(viewing.createdAt, conversation.lastStaffReplyAt)) {
+      return fail('手動返信で利用者とやりとりした仮受付だけを「手動で対応済み」にできます。先に会話ログの手動返信で調整してください。');
+    }
+    const note = checkManualCloseNote(input.note);
+    if (!note.ok) return fail(note.error);
+    if (!(await applyTransition(deps, viewing.id, 'closed_manually', { staffNote: note.value }))) return fail(RACED);
+    return done('手動で対応済みにしました（利用者には何も送っていません）。');
+  } catch (error) {
+    return unexpected('手動で対応済み', error);
   }
 }
 
