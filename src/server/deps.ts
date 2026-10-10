@@ -8,20 +8,28 @@ import { createSupabaseRepositories } from '@/lib/db';
 import { optionalEnv } from '@/lib/env';
 import { createLineMessenger } from '@/lib/line/messenger';
 import { generateAnswer } from '@/lib/llm/answer';
-import { createAnthropicClient } from '@/lib/llm/client';
+import { createAnthropicClient, type Logger } from '@/lib/llm/client';
 import { extractIntentAndSlots } from '@/lib/llm/extract';
 import type { Answerer, Deps, Extractor, StaffNotifier } from './handleEvent';
 
 /** DAILY_COST_LIMIT_USD が無いときの1日の API 費用上限（USD） */
 const DEFAULT_DAILY_COST_LIMIT_USD = 5;
 
-export function createExtractor(client = createAnthropicClient()): Extractor {
+/** 評価（scripts/eval.ts）でモデルを差し替え、ログを集めるための口。本番は既定のまま */
+export interface LlmStageOptions {
+  model?: string;
+  logger?: Logger;
+}
+
+export function createExtractor(client = createAnthropicClient(), options: LlmStageOptions = {}): Extractor {
   return async ({ utterance, slots, shown, now }) => {
     const out = await extractIntentAndSlots({
       utterance,
       slots,
       now,
       client,
+      model: options.model,
+      logger: options.logger,
       shown: shown.map(({ position, property }) => {
         const access = relevantAccess(property, slots.area?.value);
         return {
@@ -52,9 +60,12 @@ const ANSWER_TIMEOUT_MS = 15_000;
  * 安全分類器の拒否でもサーバー側のフォールバックは使わない（拒否は引き継ぎに倒せば安全で、
  * 料金表に無いモデルで応答されると費用の計上が例外になるため）
  */
-export function createAnswerer(client = createAnthropicClient({ timeoutMs: ANSWER_TIMEOUT_MS, maxRetries: 0 })): Answerer {
+export function createAnswerer(
+  client = createAnthropicClient({ timeoutMs: ANSWER_TIMEOUT_MS, maxRetries: 0 }),
+  options: LlmStageOptions = {},
+): Answerer {
   return async ({ question, targets, now }) => {
-    const out = await generateAnswer({ question, targets, now, client });
+    const out = await generateAnswer({ question, targets, now, client, model: options.model, logger: options.logger });
     return {
       text: out.text,
       handoff: out.handoff,
