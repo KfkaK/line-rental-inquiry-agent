@@ -287,12 +287,12 @@ export function createMemoryRepositories(seed: MemorySeed = {}, options: MemoryO
           .map(copy);
       },
 
-      async countUserMessagesSince(lineUserId, since) {
+      async countExtractedTurnsSince(lineUserId, since) {
         const conversation = findConversationByLineUser(lineUserId);
         if (!conversation) return 0;
         const from = since.getTime();
         return messages.filter(
-          (m) => m.conversationId === conversation.id && m.role === 'user' && Date.parse(m.createdAt) >= from,
+          (m) => m.conversationId === conversation.id && m.role === 'ai' && m.intent != null && Date.parse(m.createdAt) >= from,
         ).length;
       },
 
