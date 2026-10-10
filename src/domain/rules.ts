@@ -84,6 +84,13 @@ export const VIEWING_DAYS_TO_OFFER = 5;
 /** 最終の担当者返信からこの時間が経つと AI の自動応答を再開する */
 export const AI_RESUME_AFTER_MS = 24 * 60 * 60 * 1000;
 
+// ---------- 管理画面（DESIGN.md 2.2） ----------
+
+/** 担当者の手動返信の字数の上限（LINE のテキストは 5,000 字まで。長文は分けて送ってもらう） */
+export const STAFF_REPLY_MAX_CHARS = 1000;
+/** 却下の理由・確定に添える一言の字数の上限（利用者に送る） */
+export const STAFF_NOTE_MAX_CHARS = 300;
+
 // ---------- 営業時間（DESIGN.md 2.1。既定値。実際の値は business_hours テーブル） ----------
 
 export const DEFAULT_OPEN = '10:00';
