@@ -31,10 +31,27 @@ const PAIRS = [
   ['accent', 'backgroundElement'],
   ['danger', 'background'],
   ['danger', 'backgroundElement'],
+  // 管理画面の補助色: 帯・テーブル見出し・無効な欄の地（backgroundMuted）、選択中の項目・状態の印（accentSoft）、失敗の帯（dangerSoft）
+  ['text', 'backgroundMuted'],
+  ['textSecondary', 'backgroundMuted'],
+  ['accent', 'backgroundMuted'],
+  ['text', 'accentSoft'],
+  ['textSecondary', 'accentSoft'],
+  ['accent', 'accentSoft'],
+  ['text', 'dangerSoft'],
+  ['danger', 'dangerSoft'],
 ];
 
 /** 非テキストの（部品, 地）の組 */
-const NON_TEXT_PAIRS = [];
+const NON_TEXT_PAIRS = [
+  // 入力欄・ボタンの枠線（WCAG 1.4.11）。カードの区切り線（border）は飾りなので対象外
+  ['borderStrong', 'background'],
+  ['borderStrong', 'backgroundElement'],
+  ['borderStrong', 'backgroundMuted'],
+  // フォーカスの輪郭
+  ['accent', 'background'],
+  ['accent', 'backgroundElement'],
+];
 
 /** `light: { ... }` のようなブロックから `key: '#RRGGBB'` を拾う */
 function extractTokens(source, themeName) {

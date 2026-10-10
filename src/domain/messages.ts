@@ -37,7 +37,8 @@ export function askFor(key: ScalarSlotKey): string {
   return ASK[key];
 }
 
-const PRIORITY_LABEL: Record<Priority, string> = { must: '外せない', want: 'できれば', nice: 'あれば' };
+/** 優先度の呼び名（会話の文・管理画面で使う） */
+export const PRIORITY_LABEL: Record<Priority, string> = { must: '外せない', want: 'できれば', nice: 'あれば' };
 
 /** 「外せない: 渋谷エリア・予算9万円以内 / できれば: 徒歩10分以内 / あれば: オートロック」 */
 export function conditionsSummary(conditions: readonly ConditionSummary[]): string {
@@ -111,7 +112,8 @@ export function propertyDetail(p: Property, position: number | null): string {
   return lines.join('\n');
 }
 
-const TOPIC_LABEL: Record<ForbiddenTopic, string> = {
+/** 禁止トピックの呼び名（引き継ぎ文・管理画面・担当者通知で使う） */
+export const TOPIC_LABEL: Record<ForbiddenTopic, string> = {
   vacancy: '空室状況',
   initialCostTotal: '初期費用の確定額',
   safety: '周辺の治安',
@@ -159,6 +161,29 @@ export function viewingAccepted(
     ? `ただいま営業時間外のため、${formatJstDay(contactDay)}に担当者から確定のご連絡をします。`
     : '担当者から確定のご連絡をします。';
   return `「${propertyName}」の内見のご希望を受け付けました。\n${list}\n\nまだ予約は確定していません。${when}`;
+}
+
+// ---------- 担当者が管理画面から送る文（AI ではなく担当者からの連絡だと分かるように頭に付ける） ----------
+
+const FROM_STAFF = '【担当者より】';
+
+/** 内見の確定（DESIGN.md 2.2「内見の確定・却下」）。`time` は 'YYYY-MM-DDTHH:mm' */
+export function viewingConfirmed(propertyName: string, time: string, note: string): string {
+  const lines = [`${FROM_STAFF}「${propertyName}」の内見日時が確定しました。`, `日時: ${formatViewingTime(time)}`];
+  if (note) lines.push('', note);
+  lines.push('', '当日の待ち合わせ場所などは、あらためてこのトークでご連絡します。');
+  return lines.join('\n');
+}
+
+/** 内見の却下。理由は担当者が書く */
+export function viewingRejected(propertyName: string, reason: string): string {
+  return [
+    `${FROM_STAFF}「${propertyName}」の内見は、ご希望の日時でのご案内が難しくなりました。`,
+    '',
+    reason,
+    '',
+    'ほかの日時や物件のご希望があれば、このトークでお知らせください。',
+  ].join('\n');
 }
 
 export function textOnly(): string {

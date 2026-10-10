@@ -256,6 +256,59 @@ describe('conversations', () => {
     expect(summary).not.toHaveProperty('lineUserId');
     expect(await repos.conversations.getSummary('nope')).toBeNull();
   });
+
+  it('引き継ぎメモ: 新しい会話は対応済み 0・デモでない。listWithOpenHandoff は未対応のメモがある会話だけを新しい順に', async () => {
+    const { repos, advance } = setup({
+      lineUsers: [
+        { lineUserId: 'U1', displayName: 'いち' },
+        { lineUserId: 'U2', displayName: 'に' },
+        { lineUserId: 'U3' },
+      ],
+    });
+    const note = (text: string): HandoffNote => ({ text, topic: null, propertyIds: [], at: '2026-10-07T00:00:00.000Z' });
+    const c1 = await repos.conversations.getOrCreate('U1');
+    const c2 = await repos.conversations.getOrCreate('U2');
+    await repos.conversations.getOrCreate('U3');
+    expect(c1).toMatchObject({ handoffResolvedCount: 0, isDemo: false });
+
+    await repos.conversations.update(c1.id, { handoffNotes: [note('a')] });
+    advance(MINUTE);
+    await repos.conversations.update(c2.id, { handoffNotes: [note('b'), note('c')] });
+    const open = await repos.conversations.listWithOpenHandoff();
+    expect(open.map((c) => c.id)).toEqual([c2.id, c1.id]);
+    expect(open[0]).toMatchObject({ displayName: 'に', handoffResolvedCount: 0 });
+    expect(open[0]).not.toHaveProperty('lineUserId');
+
+    // 見た件数まで対応済みにする。全部なら一覧から外れ、一部なら残る
+    await repos.conversations.update(c1.id, { handoffResolvedCount: 1 });
+    await repos.conversations.update(c2.id, { handoffResolvedCount: 1 });
+    expect((await repos.conversations.listWithOpenHandoff()).map((c) => c.id)).toEqual([c2.id]);
+    await expectDbError(repos.conversations.update(c1.id, { handoffResolvedCount: -1 }), '23514');
+  });
+
+  it('初期データの会話は handoffResolvedCount・isDemo を省略でき、渡せばそのまま', async () => {
+    const { repos } = setup();
+    const base = {
+      lineUserId: 'U-demo',
+      state: 'hearing' as const,
+      slots: { tags: [] },
+      shownPropertyIds: [],
+      shownOffset: 0,
+      lastSearchTotal: null,
+      priorityAskedCount: 0,
+      aiPaused: false,
+      pausedAt: null,
+      lastStaffReplyAt: null,
+      booking: null,
+      handoffNotes: [],
+      createdAt: '2026-10-07T00:00:00.000Z',
+      updatedAt: '2026-10-07T00:00:00.000Z',
+    };
+    const seeded = setup({ conversations: [{ ...base, id: 'c-a' }, { ...base, id: 'c-b', lineUserId: 'U-b', isDemo: true, handoffResolvedCount: 2 }] });
+    expect(await seeded.repos.conversations.getById('c-a')).toMatchObject({ isDemo: false, handoffResolvedCount: 0 });
+    expect(await seeded.repos.conversations.getById('c-b')).toMatchObject({ isDemo: true, handoffResolvedCount: 2 });
+    expect(await repos.conversations.listWithOpenHandoff()).toEqual([]);
+  });
 });
 
 // ---------- messages ----------
@@ -339,6 +392,29 @@ describe('messages', () => {
     expect(await repos.messages.countExtractedTurnsSince('U1', new Date(T0))).toBe(3);
     expect(await repos.messages.countExtractedTurnsSince('U2', since)).toBe(1);
     expect(await repos.messages.countExtractedTurnsSince('U-none', since)).toBe(0);
+  });
+
+  it('countUserMessagesSince は その会話の利用者の発言（role=user）だけを since 以降（含む）で数える', async () => {
+    const { repos, advance, at, conversation } = await withConversation('U1');
+    await repos.lineUsers.upsert({ lineUserId: 'U2' });
+    const other = await repos.conversations.getOrCreate('U2');
+
+    await repos.messages.insert({ conversationId: conversation.id, role: 'user', text: '古い' });
+    advance(30_000);
+    const since = at();
+    await repos.messages.insert({ conversationId: conversation.id, role: 'user', text: 'ちょうど' });
+    // AI・担当者の発言と、別の会話の利用者の発言は数えない
+    await repos.messages.insert({ conversationId: conversation.id, role: 'ai', text: 'AI' });
+    await repos.messages.insert({ conversationId: conversation.id, role: 'staff', text: '担当者' });
+    await repos.messages.insert({ conversationId: other.id, role: 'user', text: '別の会話' });
+    advance(1000);
+    await repos.messages.insert({ conversationId: conversation.id, role: 'user', text: '新しい' });
+
+    expect(await repos.messages.countUserMessagesSince(conversation.id, since)).toBe(2);
+    expect(await repos.messages.countUserMessagesSince(conversation.id, new Date(T0))).toBe(3);
+    expect(await repos.messages.countUserMessagesSince(conversation.id, new Date(at().getTime() + 1))).toBe(0);
+    expect(await repos.messages.countUserMessagesSince(other.id, since)).toBe(1);
+    expect(await repos.messages.countUserMessagesSince('nope', since)).toBe(0);
   });
 
   it('sumCostSince は since 以降（含む）の全ロールの費用を合計する', async () => {
@@ -447,6 +523,57 @@ describe('viewingRequests', () => {
     await expectDbError(repos.viewingRequests.update('nope', { status: 'rejected' }), 'NOT_FOUND');
     expect(await repos.viewingRequests.getById('nope')).toBeNull();
     expect(await repos.viewingRequests.getById(request.id)).toMatchObject({ id: request.id, displayName: 'たろう', propertyName: 'レジデンス渋谷' });
+  });
+
+  it('transition は status が from のどれかのときだけ更新する。入っていなければ何も変えずに null。無い ID は NOT_FOUND', async () => {
+    const { repos, advance, conversation } = await withConversation();
+    const create = (propertyId: string) =>
+      repos.viewingRequests.create({ conversationId: conversation.id, propertyId, candidateTimes: ['2026-10-10'], receivedOutsideHours: false });
+    const a = await create('P1');
+    advance(MINUTE);
+
+    // from に入っている（pending ∈ [pending, in_progress]）→ 更新して返す。updatedAt も進む
+    const confirmed = await repos.viewingRequests.transition(a.id, ['pending', 'in_progress'], {
+      status: 'confirmed',
+      confirmedTime: '2026-10-10',
+      staffNote: '確定',
+    });
+    expect(confirmed).toMatchObject({ id: a.id, status: 'confirmed', confirmedTime: '2026-10-10', staffNote: '確定', updatedAt: '2026-10-07T00:01:00.000Z' });
+    expect(confirmed?.createdAt).toBe(a.createdAt);
+
+    // 2つ目のタブからの二重送信: もう confirmed なので null。値も updatedAt も変えない
+    advance(MINUTE);
+    expect(await repos.viewingRequests.transition(a.id, ['pending', 'in_progress'], { status: 'rejected', staffNote: '二重' })).toBeNull();
+    expect(await repos.viewingRequests.transition(a.id, [], { status: 'rejected' })).toBeNull();
+    const after = await repos.viewingRequests.getById(a.id);
+    expect(after).toMatchObject({ status: 'confirmed', confirmedTime: '2026-10-10', staffNote: '確定', updatedAt: '2026-10-07T00:01:00.000Z' });
+
+    // 空の patch は、from に入っていれば現在の行をそのまま返し（updatedAt も進めない）、入っていなければ null
+    const b = await create('P2');
+    advance(MINUTE);
+    expect(await repos.viewingRequests.transition(b.id, ['pending'], {})).toEqual(b);
+    expect(await repos.viewingRequests.transition(b.id, ['confirmed'], {})).toBeNull();
+
+    await expectDbError(repos.viewingRequests.transition('nope', ['pending'], { status: 'rejected' }), 'NOT_FOUND');
+    // 行が無いときは from に関わらず NOT_FOUND（null と区別する）
+    await expectDbError(repos.viewingRequests.transition('nope', [], { status: 'rejected' }), 'NOT_FOUND');
+  });
+
+  it('listByConversation はその会話の仮受付を届いた順に。一覧の行は会話の対応済みの数とデモかを持つ', async () => {
+    const { repos, advance, conversation } = await withConversation();
+    await repos.lineUsers.upsert({ lineUserId: 'U2' });
+    const other = await repos.conversations.getOrCreate('U2');
+    const a = await repos.viewingRequests.create({ conversationId: conversation.id, propertyId: 'P1', candidateTimes: [], receivedOutsideHours: false });
+    advance(MINUTE);
+    await repos.viewingRequests.create({ conversationId: other.id, propertyId: 'P1', candidateTimes: [], receivedOutsideHours: false });
+    advance(MINUTE);
+    const b = await repos.viewingRequests.create({ conversationId: conversation.id, propertyId: 'P2', candidateTimes: [], receivedOutsideHours: true });
+    await repos.conversations.update(conversation.id, { handoffResolvedCount: 3 });
+
+    const list = await repos.viewingRequests.listByConversation(conversation.id);
+    expect(list.map((r) => r.id)).toEqual([a.id, b.id]);
+    expect(list[0]).toMatchObject({ handoffResolvedCount: 3, isDemo: false, displayName: 'たろう' });
+    expect(await repos.viewingRequests.listByConversation('nope')).toEqual([]);
   });
 });
 

@@ -36,13 +36,16 @@ export interface MemorySeed {
   properties?: Property[];
   /** 表示名つきで LINE ユーザーを作っておく */
   lineUsers?: LineUserInput[];
-  /** `lineUserId` の LINE ユーザーが無ければ、表示名なしで作る */
-  conversations?: Conversation[];
+  /** `lineUserId` の LINE ユーザーが無ければ、表示名なしで作る。`handoffResolvedCount`・`isDemo` の省略は 0・false */
+  conversations?: SeedConversation[];
   messages?: Message[];
   viewingRequests?: ViewingRequest[];
   /** 渡した曜日だけ既定値を上書きする（DB と同じく 7 曜日は常にある） */
   calendar?: BusinessCalendar;
 }
+
+export type SeedConversation = Omit<Conversation, 'handoffResolvedCount' | 'isDemo'> &
+  Partial<Pick<Conversation, 'handoffResolvedCount' | 'isDemo'>>;
 
 export interface MemoryOptions {
   /** 現在時刻。既定は実時計 */
@@ -136,6 +139,8 @@ export function createMemoryRepositories(seed: MemorySeed = {}, options: MemoryO
       displayName: conversation ? displayNameOf(conversation.lineUserId) : null,
       propertyName: properties.get(request.propertyId)?.name ?? null,
       handoffNotes: conversation?.handoffNotes ?? [],
+      handoffResolvedCount: conversation?.handoffResolvedCount ?? 0,
+      isDemo: conversation?.isDemo ?? false,
     });
   };
 
@@ -145,7 +150,7 @@ export function createMemoryRepositories(seed: MemorySeed = {}, options: MemoryO
   for (const user of seed.lineUsers ?? []) upsertLineUser(user);
   for (const conversation of seed.conversations ?? []) {
     upsertLineUser({ lineUserId: conversation.lineUserId });
-    conversations.set(conversation.id, copy(conversation));
+    conversations.set(conversation.id, copy({ handoffResolvedCount: 0, isDemo: false, ...conversation }));
   }
   for (const message of seed.messages ?? []) messages.push(copy(message));
   for (const request of seed.viewingRequests ?? []) viewingRequests.set(request.id, copy(request));
@@ -215,6 +220,8 @@ export function createMemoryRepositories(seed: MemorySeed = {}, options: MemoryO
           lastStaffReplyAt: null,
           booking: null,
           handoffNotes: [],
+          handoffResolvedCount: 0,
+          isDemo: false,
           createdAt: at,
           updatedAt: at,
         };
@@ -232,6 +239,10 @@ export function createMemoryRepositories(seed: MemorySeed = {}, options: MemoryO
         if (!current) throw notFound('conversations.update', '会話', id);
         // 空の patch は何も書かない（Supabase 実装と同じ。updatedAt も進めない）
         if (Object.keys(conversationPatchToRow(patch)).length === 0) return copy(current);
+        // DB の check (handoff_resolved_count >= 0) と同じ
+        if (patch.handoffResolvedCount !== undefined && patch.handoffResolvedCount < 0) {
+          throw new DbError('conversations.update', 'handoff_resolved_count は 0 以上', '23514');
+        }
         const next = { ...withPatch<Conversation>(current, patch), updatedAt: now() };
         conversations.set(id, next);
         return copy(next);
@@ -253,6 +264,14 @@ export function createMemoryRepositories(seed: MemorySeed = {}, options: MemoryO
       async getSummary(id) {
         const conversation = conversations.get(id);
         return conversation ? toConversationSummary(copy(conversation), displayNameOf(conversation.lineUserId)) : null;
+      },
+
+      async listWithOpenHandoff() {
+        return [...conversations.values()]
+          .reverse()
+          .filter((c) => c.handoffNotes.length > c.handoffResolvedCount)
+          .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+          .map((c) => toConversationSummary(copy(c), displayNameOf(c.lineUserId)));
       },
     },
 
@@ -293,6 +312,13 @@ export function createMemoryRepositories(seed: MemorySeed = {}, options: MemoryO
         const from = since.getTime();
         return messages.filter(
           (m) => m.conversationId === conversation.id && m.role === 'ai' && m.intent != null && Date.parse(m.createdAt) >= from,
+        ).length;
+      },
+
+      async countUserMessagesSince(conversationId, since) {
+        const from = since.getTime();
+        return messages.filter(
+          (m) => m.conversationId === conversationId && m.role === 'user' && Date.parse(m.createdAt) >= from,
         ).length;
       },
 
@@ -347,9 +373,27 @@ export function createMemoryRepositories(seed: MemorySeed = {}, options: MemoryO
           .map(toListItem);
       },
 
+      async listByConversation(conversationId) {
+        return [...viewingRequests.values()]
+          .filter((r) => r.conversationId === conversationId)
+          .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
+          .map(toListItem);
+      },
+
       async update(id, patch: ViewingRequestPatch) {
         const current = viewingRequests.get(id);
         if (!current) throw notFound('viewingRequests.update', '内見の仮受付', id);
+        if (Object.keys(viewingRequestPatchToRow(patch)).length === 0) return copy(current);
+        const next = { ...withPatch<ViewingRequest>(current, patch), updatedAt: now() };
+        viewingRequests.set(id, next);
+        return copy(next);
+      },
+
+      async transition(id, from, patch: ViewingRequestPatch) {
+        const current = viewingRequests.get(id);
+        if (!current) throw notFound('viewingRequests.transition', '内見の仮受付', id);
+        // 確認と更新の間に await を挟まない（Supabase 実装の「条件つき UPDATE 1回」と同じ原子性）
+        if (!from.includes(current.status)) return null;
         if (Object.keys(viewingRequestPatchToRow(patch)).length === 0) return copy(current);
         const next = { ...withPatch<ViewingRequest>(current, patch), updatedAt: now() };
         viewingRequests.set(id, next);

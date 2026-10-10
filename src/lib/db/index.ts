@@ -4,5 +4,5 @@
  */
 export * from './types';
 export { createMemoryRepositories } from './memory';
-export type { MemoryOptions, MemorySeed } from './memory';
+export type { MemoryOptions, MemorySeed, SeedConversation } from './memory';
 export { createServiceClient, createSupabaseRepositories } from './supabase';

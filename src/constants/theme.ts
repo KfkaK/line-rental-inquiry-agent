@@ -14,6 +14,10 @@ export const theme = {
     accent: '#3E5C76',
     onAccent: '#FFFFFF',
     danger: '#9A3B32',
+    backgroundMuted: '#EBEEF1',
+    borderStrong: '#7E8995',
+    accentSoft: '#E4EBF1',
+    dangerSoft: '#F6E8E6',
   },
   dark: {
     background: '#1B1D20',
@@ -24,6 +28,10 @@ export const theme = {
     accent: '#9DB8CE',
     onAccent: '#1B1D20',
     danger: '#E59A90',
+    backgroundMuted: '#2E3237',
+    borderStrong: '#7A838D',
+    accentSoft: '#2B3945',
+    dangerSoft: '#3B2B29',
   },
 } as const;
 

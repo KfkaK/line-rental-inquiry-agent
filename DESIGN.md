@@ -53,13 +53,13 @@ AIが担うのは「ヒアリング → 検索 → 提示 → 質問回答 → �
 
 | 機能 | 内容 |
 | --- | --- |
-| 朝の引き継ぎ一覧 | 前回の営業終了以降に届いた案件を「夜間・休日分」としてまとめて表示。各行に「希望物件・候補日時・AIが聞き取れなかったこと」を1行で要約し、担当者が上から順に確定していける。ステータス: 未対応 / 対応中 / 確定 / 却下 |
-| 会話ログ | 1ユーザーの会話を時系列で閲覧。AIの回答と検索に使った条件（優先度つき）を表示 |
-| 営業時間設定 | 曜日ごとの営業時間と定休日、祝日の扱いを設定。AIの時間外案内と内見候補日の提示に使う |
-| 内見の確定・却下 | 候補日時から1つ選んで確定、またはコメント付きで却下。ユーザーへLINE通知 |
-| 手動返信 | 担当者がLINEへ返信。返信した会話はAI自動応答を停止し、担当者が「AIに戻す」で再開 |
-| 物件CSVインポート | CSVをアップロードして物件を一括登録・更新。取込時に備考からタグを自動抽出 |
-| 認証 | Supabase Authのメール＋パスワード。1社用なのでロールは「担当者」のみ |
+| 朝の引き継ぎ一覧 | 前回の営業終了以降に届いた案件を「夜間・休日分」としてまとめて表示し、それより前で手が要るもの（未対応・対応中の内見、未対応の引き継ぎメモ）を「それ以前の未対応」に残す。各行に「希望物件・候補日時・AIが聞き取れなかったこと」を1行で要約し、担当者が上から順に（届いた順）確定していける。内見の無い会話の引き継ぎメモも1行にする。ステータス: 未対応 / 対応中 / 確定 / 却下 |
+| 会話ログ | 1ユーザーの会話を時系列で閲覧。AIの回答と検索に使った条件（優先度つき）を表示。引き継ぎメモは「対応済みにする」で一覧から外す（見た件数までを対応済みにし、後から届いたメモは残す） |
+| 営業時間設定 | 曜日ごとの営業時間と定休日、祝日・臨時休業を設定。AIの時間外案内と内見候補日の提示に使う。営業日が無い・翌営業日が決められない設定は保存しない |
+| 内見の確定・却下 | 候補日時から1つ選び時刻を入れて確定（日付は利用者の候補から選ぶ）、または理由付きで却下。ユーザーへLINE通知（「【担当者より】」で始まる文）。確定・却下は戻せない。AIの自動応答は止めない |
+| 手動返信 | 担当者がLINEへ返信。送る前にAI自動応答を停止し、担当者が「AIに戻す」で再開（最終の担当者返信から24時間でも自動で再開） |
+| 物件CSVインポート | CSVで物件を一括登録・更新。取込時に備考からタグを自動抽出。MVP では CLI（`npm run data:import`）で行い、アップロード画面は後回し |
+| 認証 | Supabase Authのメール＋パスワード。ロールは `app_metadata.role` の「担当者（staff）」と「閲覧用（viewer）」。閲覧用は公開デモ用で、読み取りだけ・会話はデモ会話に限る（RLS で強制）。ロールの無いアカウントは何も読めない。アカウントは `npm run admin:user` で作る（Sign-ups は無効） |
 
 ### 2.3 やらないこと（MVP外）
 
@@ -208,7 +208,7 @@ flowchart TD
 | --- | --- | --- |
 | properties | id, name, address, ward, access(JSON: `[{station, walk_min}]`、先頭が最寄り、1〜3件), rent, management_fee, deposit_months, key_money_months, layout, area_sqm, floor, built_year, tags(配列), note, available_from, status(public/private), updated_at | 物件マスタ。CSVから取込 |
 | line_users | id, line_user_id, display_name, created_at | LINEユーザー |
-| conversations | id, line_user_id, state(hearing/presenting/qa/booking/handed_off), slots(JSON), shown_property_ids(配列、表示順), shown_offset, last_search_total, priority_asked_count, ai_paused(bool), paused_at, last_staff_reply_at, booking(JSON: 内見の聞き取り途中), handoff_notes(JSON: 担当者へ回した質問), created_at, updated_at | 会話の状態。1 LINEユーザー1会話 |
+| conversations | id, line_user_id, state(hearing/presenting/qa/booking/handed_off), slots(JSON), shown_property_ids(配列、表示順), shown_offset, last_search_total, priority_asked_count, ai_paused(bool), paused_at, last_staff_reply_at, booking(JSON: 内見の聞き取り途中), handoff_notes(JSON: 担当者へ回した質問・追記だけ), handoff_resolved_count(先頭から何件を対応済みにしたか), handoff_open_count(生成列: 未対応の数), is_demo(閲覧用に見せるデモ会話), created_at, updated_at | 会話の状態。1 LINEユーザー1会話 |
 | messages | id, conversation_id, role(user/ai/staff), text, intent, slot_diff(JSON), tool_calls(JSON), verification(ok/replaced), latency_ms, cost_usd, created_at | 会話ログと計測値 |
 | viewing_requests | id, conversation_id, property_id, candidate_times(配列), status(pending/in_progress/confirmed/rejected), confirmed_time, staff_note, received_outside_hours(bool), created_at, updated_at | 内見の仮受付。時間外受付かを記録し、効果測定に使う |
 | business_hours | weekday(0-6), open_time, close_time, is_closed | 営業時間設定（初期値: 10〜19時・水曜定休） |
@@ -221,7 +221,7 @@ flowchart TD
 - `properties.tags` は取込時にLLMが備考から抽出した値（敷金なし・礼金なしは数値列から決める）。検索はこの列と数値列で行う
 - `messages.verification` と `latency_ms` `cost_usd` を最初から記録し、評価レポートはこのテーブルから集計する。1日の費用上限は `sum_message_cost_since()` で集計する
 - `line_user_id` は個人情報なので、管理画面では表示名のみ見せる
-- 全テーブルで RLS を有効にし、Webhook は service role で読み書きする。管理画面のログイン済み担当者には必要な select/insert/update だけを許す。anon には何も許さない
+- 全テーブルで RLS を有効にし、Webhook とスクリプトは service role で読み書きする。管理画面はログインした利用者のセッション（publishable key ＋ JWT）で読み書きし、RLS を本物の門にする。ロールが担当者（staff）なら必要な select/insert/update だけを、閲覧用（viewer）ならデモ会話まわりの select だけを許す。ロールの無いログインユーザーと anon には何も許さない
 - 会話ログの90日削除は `purge_old_messages()`（スケジュールは後で設定）
 - ベクトル検索を入れる場合は `properties.note_embedding`（pgvector）を後から追加する
 
@@ -238,7 +238,7 @@ Next.js一本で管理画面とWebhookを持ち、Supabaseに状態を置き、V
 | DB・認証 | Supabase（Postgres、Auth、RLS）。pgvectorは任意 | 構造化検索と認証を1サービスで済ませる |
 | LLM | Claude API（tool use、プロンプトキャッシュ） | 役割分担は4.1のとおり |
 | ホスティング | Vercel | デプロイが楽。Webhookの非同期処理に注意（6.1） |
-| 担当者通知 | メール（Resend）＋管理画面の未対応一覧。Slack Webhookは任意 | LINE Notifyは終了しているため使わない |
+| 担当者通知 | メール（Resend）＋管理画面の未対応一覧。内見の仮受付は毎回、引き継ぎメモは未対応のメモが無い会話の最初の1件だけ、AI停止中（担当者が対応中）の会話への利用者の返信は担当者の返信の後の最初の1件だけ通知する（続けて届いてもメールを重ねない）。メールに表示名・LINEユーザーID・停止中の発言の本文は入れず、管理画面のリンクで見てもらう。Slack Webhookは任意 | LINE Notifyは終了しているため使わない |
 | 評価・CI | Vitest、GitHub Actionsで評価セットを再実行 | 数字を再現可能にする |
 
 ### 6.1 Webhook処理の注意点
@@ -257,9 +257,16 @@ LINE_CHANNEL_ACCESS_TOKEN
 ANTHROPIC_API_KEY
 SUPABASE_URL
 SUPABASE_SERVICE_ROLE_KEY
+SUPABASE_PUBLISHABLE_KEY   # 管理画面のログイン（RLS が効くクライアント）
 RESEND_API_KEY
+STAFF_NOTIFY_EMAIL         # 担当者通知の宛先（RESEND_API_KEY と両方あるときだけメール）
+NOTIFY_FROM_EMAIL          # 任意。差出人
+APP_BASE_URL               # 任意。通知メールの管理画面リンクの起点（既定は Vercel の本番 URL）
 DAILY_COST_LIMIT_USD
+ADMIN_PREVIEW              # 開発環境だけ。1 で管理画面をインメモリのデモデータで開く
 ```
+
+一覧の正は `src/lib/env.ts` の `ENV_NAMES`。
 
 ## 7. 評価設計
 

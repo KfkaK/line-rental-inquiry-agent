@@ -228,6 +228,21 @@ export function createSupabaseRepositories(client: SupabaseClient = createServic
         if (error) throw fail('conversations.getSummary', error);
         return data ? rowToConversationSummary(data as unknown as ConversationSummaryDbRow) : null;
       },
+
+      async listWithOpenHandoff() {
+        const rows = await fetchAll<ConversationSummaryDbRow>('conversations.listWithOpenHandoff', (from, to) =>
+          client
+            .from('conversations')
+            .select(CONVERSATION_SUMMARY_SELECT)
+            .gt('handoff_open_count', 0)
+            .order('updated_at', { ascending: false })
+            .order('id', { ascending: false })
+            .range(from, to)
+            // select 句を定数の連結で組んでいるので、型の推論が効かない
+            .overrideTypes<ConversationSummaryDbRow[], { merge: false }>(),
+        );
+        return rows.map(rowToConversationSummary);
+      },
     },
 
     messages: {
@@ -267,6 +282,17 @@ export function createSupabaseRepositories(client: SupabaseClient = createServic
           .not('intent', 'is', null)
           .gte('created_at', since.toISOString());
         if (error) throw fail('messages.countExtractedTurnsSince', error);
+        return count ?? 0;
+      },
+
+      async countUserMessagesSince(conversationId, since) {
+        const { count, error } = await client
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('conversation_id', conversationId)
+          .eq('role', 'user')
+          .gte('created_at', since.toISOString());
+        if (error) throw fail('messages.countUserMessagesSince', error);
         return count ?? 0;
       },
 
@@ -326,6 +352,19 @@ export function createSupabaseRepositories(client: SupabaseClient = createServic
         return rows.map(rowToViewingRequestListItem);
       },
 
+      async listByConversation(conversationId) {
+        const rows = await fetchAll<ViewingRequestListDbRow>('viewingRequests.listByConversation', (from, to) =>
+          client
+            .from('viewing_requests')
+            .select(VIEWING_REQUEST_LIST_SELECT)
+            .eq('conversation_id', conversationId)
+            .order('created_at', { ascending: true })
+            .order('id', { ascending: true })
+            .range(from, to),
+        );
+        return rows.map(rowToViewingRequestListItem);
+      },
+
       async update(id, patch) {
         const row = viewingRequestPatchToRow(patch);
         if (Object.keys(row).length === 0) {
@@ -337,6 +376,31 @@ export function createSupabaseRepositories(client: SupabaseClient = createServic
         if (error) throw fail('viewingRequests.update', error);
         if (!data) throw notFound('viewingRequests.update', '内見の仮受付', id);
         return rowToViewingRequest(data as ViewingRequestDbRow);
+      },
+
+      async transition(id, from, patch) {
+        const operation = 'viewingRequests.transition';
+        const row = viewingRequestPatchToRow(patch);
+        if (Object.keys(row).length === 0) {
+          // 何も書かないので競合しない。読むだけで判定する
+          const current = await getViewingRequestRow(operation, id);
+          if (!current) throw notFound(operation, '内見の仮受付', id);
+          return from.includes(current.status) ? current : null;
+        }
+        // 「いまの status が from のとき」を WHERE に入れ、確認と更新を1回の UPDATE で行う
+        const { data, error } = await client
+          .from('viewing_requests')
+          .update(row)
+          .eq('id', id)
+          .in('status', [...from])
+          .select()
+          .maybeSingle();
+        if (error) throw fail(operation, error);
+        if (data) return rowToViewingRequest(data as ViewingRequestDbRow);
+        // 更新できなかった。行が無いのか、status が合わなかったのかを引き直して決める
+        const current = await getViewingRequestRow(operation, id);
+        if (!current) throw notFound(operation, '内見の仮受付', id);
+        return null;
       },
     },
 
