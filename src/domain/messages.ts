@@ -66,7 +66,12 @@ export function askMustConditions(total: number): string {
 }
 
 export function askWhichToRelax(): string {
-  return 'どの条件なら緩められそうですか？';
+  return 'どの条件なら緩められそうですか？下から選ぶと、その条件を「できれば」にして探し直します。';
+}
+
+/** 0件で、緩める提案も聞き返しもできないとき（行き止まりにしない） */
+export function howToChangeConditions(): string {
+  return '条件を変えて送ってください（例:「予算10万まで」「駅から15分でもいい」「オートロックはなくてもいい」）。';
 }
 
 export function noMoreResults(): string {
