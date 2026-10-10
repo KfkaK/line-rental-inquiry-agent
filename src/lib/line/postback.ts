@@ -21,7 +21,9 @@ export type PostbackData =
   /** 内見の候補日時をこのまま送る */
   | { action: 'bookingSubmit' }
   | { action: 'relax'; ref: ConditionRef; accept: boolean }
-  | { action: 'priority'; ref: ConditionRef };
+  | { action: 'priority'; ref: ConditionRef }
+  /** 0件のときに選んだ「緩められる条件」（できれば に下げる） */
+  | { action: 'loosen'; ref: ConditionRef };
 
 export type PostbackAction = PostbackData['action'];
 
@@ -88,6 +90,7 @@ export function buildPostbackData(data: PostbackData): string {
       params.set('accept', data.accept ? '1' : '0');
       break;
     case 'priority':
+    case 'loosen':
       setRef(params, data.ref);
       break;
   }
@@ -124,9 +127,10 @@ export function parsePostbackData(raw: unknown): PostbackData | null {
       if (ref === null || (accept !== '1' && accept !== '0')) return null;
       return { action: 'relax', ref, accept: accept === '1' };
     }
-    case 'priority': {
+    case 'priority':
+    case 'loosen': {
       const ref = getRef(params);
-      return ref === null ? null : { action: 'priority', ref };
+      return ref === null ? null : { action: params.get('a') as 'priority' | 'loosen', ref };
     }
     default:
       return null;

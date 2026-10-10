@@ -19,7 +19,7 @@ import {
   VIEWING_DAYS_TO_OFFER,
 } from './rules';
 import { searchProperties } from './search';
-import { applySlotOps, emptySlots, listConditions, missingForSearch, priorityOp, sameRef } from './slots';
+import { applySlotOps, emptySlots, listConditions, missingForSearch, priorityOp, sameRef, type ConditionSummary } from './slots';
 import type {
   BookingDraft,
   BusinessCalendar,
@@ -52,7 +52,9 @@ export type ButtonEvent =
   | { kind: 'viewingDay'; date: string }
   | { kind: 'bookingSubmit' }
   | { kind: 'relax'; ref: ConditionRef; accept: boolean }
-  | { kind: 'priority'; ref: ConditionRef };
+  | { kind: 'priority'; ref: ConditionRef }
+  /** 0件で「どの条件なら緩められそうですか？」に答えたボタン。その条件を「できれば」に下げる */
+  | { kind: 'loosen'; ref: ConditionRef };
 
 export type TurnEvent =
   | { kind: 'follow' }
@@ -136,6 +138,8 @@ export function decideTurn(conv: ConversationSnapshot, event: TurnEvent, ctx: Tu
       return onRelax(conv, event.ref, event.accept, ctx);
     case 'priority':
       return presentSearch(conv, applySlotOps(conv.slots, [priorityOp(event.ref, 'must')]), ctx);
+    case 'loosen':
+      return presentSearch(conv, applySlotOps(conv.slots, [priorityOp(event.ref, 'want')]), ctx);
     case 'text':
       return onText(conv, event.text, event.extraction, ctx);
   }
@@ -246,7 +250,7 @@ function presentSearch(conv: ConversationSnapshot, slots: Slots, ctx: TurnContex
       replies: [{ type: 'text', text: msg.noResults(summary) }],
       next: { ...conv, state: 'hearing', slots, shownPropertyIds: [] },
     };
-    addRelaxation(decision, slots, ctx);
+    if (!addRelaxation(decision, slots, ctx)) askWhichToLoosen(decision, conv, conditions);
     return decision;
   }
 
@@ -281,15 +285,35 @@ function presentSearch(conv: ConversationSnapshot, slots: Slots, ctx: TurnContex
   return decision;
 }
 
-/** 緩和の提案を足す（提案が無ければ何もしない） */
-function addRelaxation(decision: TurnDecision, slots: Slots, ctx: TurnContext): void {
+/** 緩和の提案を足す。提案が無ければ何もせず false */
+function addRelaxation(decision: TurnDecision, slots: Slots, ctx: TurnContext): boolean {
   const s = suggestRelaxation(ctx.properties, slots);
-  if (!s) return;
+  if (!s) return false;
   decision.replies.push({ type: 'text', text: msg.relaxationProposal(s.label, s.gained) });
   decision.quickReplies = [
     { label: '条件を変える', action: { kind: 'event', event: { kind: 'relax', ref: s.ref, accept: true } } },
     { label: 'このままにする', action: { kind: 'event', event: { kind: 'relax', ref: s.ref, accept: false } } },
   ];
+  return true;
+}
+
+/**
+ * 0件で、1つ緩めて増える提案も無いとき（予算が相場より大きく低いなど）。行き止まりにしない（DESIGN.md 3.2.1）。
+ * 優先順位を聞く回数が残っていれば「どの条件なら緩められそうですか？」と外せない条件をボタンで並べ、選ばれた条件を
+ * 「できれば」に下げて検索し直す。エリアはボタンに出さない（下げるとエリア外まで混ざる。エリアは言い直してもらう）。
+ * 回数が尽きていたら、条件の変え方の例を返す
+ */
+function askWhichToLoosen(decision: TurnDecision, conv: ConversationSnapshot, conditions: readonly ConditionSummary[]): void {
+  const loosenable = conditions.filter((c) => c.priority === 'must' && !(c.ref.kind === 'slot' && c.ref.key === 'area'));
+  if (conv.priorityAskedCount >= ASK_PRIORITY_MAX_PER_CONVERSATION || loosenable.length === 0) {
+    decision.replies.push({ type: 'text', text: msg.howToChangeConditions() });
+    return;
+  }
+  decision.replies.push({ type: 'text', text: msg.askWhichToRelax() });
+  decision.quickReplies = loosenable.map(
+    (c): QuickReplyItem => ({ label: truncateLabel(c.label), action: { kind: 'event', event: { kind: 'loosen', ref: c.ref } } }),
+  );
+  decision.next = { ...decision.next, priorityAskedCount: conv.priorityAskedCount + 1 };
 }
 
 function onRelax(conv: ConversationSnapshot, ref: ConditionRef, accept: boolean, ctx: TurnContext): TurnDecision {

@@ -28,6 +28,8 @@ export function toPostbackData(event: ButtonEvent): PostbackData {
       return { action: 'relax', ref: event.ref, accept: event.accept };
     case 'priority':
       return { action: 'priority', ref: event.ref };
+    case 'loosen':
+      return { action: 'loosen', ref: event.ref };
   }
 }
 
@@ -50,6 +52,8 @@ export function parseButtonEvent(raw: unknown): ButtonEvent | null {
       return { kind: 'relax', ref: data.ref, accept: data.accept };
     case 'priority':
       return { kind: 'priority', ref: data.ref };
+    case 'loosen':
+      return { kind: 'loosen', ref: data.ref };
   }
 }
 
