@@ -50,7 +50,11 @@ function setup(options: { now?: Date; properties?: Property[]; extractions?: Ext
   const messenger = createFakeMessenger({ profiles: { [USER]: { displayName: 'テスト太郎' } } });
   const queue = [...(options.extractions ?? [])];
   const extractCalls: ExtractInput[] = [];
-  const notifier: StaffNotifier = { viewingRequested: vi.fn(async () => {}), handoffRequested: vi.fn(async () => {}) };
+  const notifier: StaffNotifier = {
+    viewingRequested: vi.fn(async () => {}),
+    handoffRequested: vi.fn(async () => {}),
+    userRepliedWhilePaused: vi.fn(async () => {}),
+  };
   const answer = vi.fn(
     async (): Promise<AnswerOutput> => ({ text: '駐輪場はあります。', handoff: null, verification: 'ok', latencyMs: 5, costUsd: 0.002 }),
   );
@@ -443,6 +447,149 @@ describe('handleEvent', () => {
         t.messenger.failReplyWith = new Error('Invalid reply token');
         t.messenger.failPushWith = new Error('monthly limit');
         await expect(handleEvent(textEvent('このへん治安どう？'), t.deps)).rejects.toThrow('monthly limit');
+      } finally {
+        error.mockRestore();
+      }
+    });
+  });
+
+  describe('担当者への通知（担当者対応中の返信）', () => {
+    const HOUR = 60 * 60 * 1000;
+
+    /** 担当者が手動返信して会話を止めた状態にする（管理画面の手動返信と同じ更新） */
+    async function staffReplies(t: ReturnType<typeof setup>, text = '担当者です。お名前を教えてください') {
+      await t.repos.lineUsers.upsert({ lineUserId: USER });
+      const conv = await t.conversation();
+      const at = t.deps.clock().toISOString();
+      await t.repos.messages.insert({ conversationId: conv.id, role: 'staff', text });
+      await t.repos.conversations.update(conv.id, { aiPaused: true, pausedAt: at, lastStaffReplyAt: at });
+      return conv;
+    }
+
+    it('担当者の返信の後の最初の発言で通知する。続けて送られても重ねず、本文も渡さない', async () => {
+      const t = setup({ now: NIGHT });
+      const conv = await staffReplies(t);
+
+      t.advance(5 * 60 * 1000);
+      await handleEvent(textEvent('山田太郎、090-1234-5678です'), t.deps);
+      expect(t.notifier.userRepliedWhilePaused).toHaveBeenCalledTimes(1);
+      // 営業時間外（火曜 23:30 JST）。渡すのは会話 ID と時間外かだけ（キーを完全一致で固定する）
+      expect(t.notifier.userRepliedWhilePaused).toHaveBeenCalledWith({ conversationId: conv.id, receivedOutsideHours: true });
+      const calls = JSON.stringify(vi.mocked(t.notifier.userRepliedWhilePaused).mock.calls);
+      expect(calls).not.toContain('山田太郎');
+      expect(calls).not.toContain('090-1234-5678');
+      expect(calls).not.toContain(USER);
+
+      // 2通目・3通目（ボタンも利用者の発言）では重ねない。AI は返信せず、発言は保存される
+      t.advance(60 * 1000);
+      await handleEvent(textEvent('あと、ペットは飼えますか'), t.deps);
+      await handleEvent(postbackEvent(buildPostbackData({ action: 'more' })), t.deps);
+      expect(t.notifier.userRepliedWhilePaused).toHaveBeenCalledTimes(1);
+      expect(t.messenger.replies).toHaveLength(0);
+      expect(t.extractCalls).toHaveLength(0);
+      expect((await t.repos.messages.listByConversation(conv.id)).filter((m) => m.role === 'user')).toHaveLength(3);
+    });
+
+    it('営業時間内の受付は receivedOutsideHours=false', async () => {
+      const t = setup({ now: NOON });
+      const conv = await staffReplies(t);
+      t.advance(60 * 1000);
+      await handleEvent(textEvent('はい'), t.deps);
+      expect(t.notifier.userRepliedWhilePaused).toHaveBeenCalledWith({ conversationId: conv.id, receivedOutsideHours: false });
+    });
+
+    it('担当者がもう一度返信した後の最初の発言で、また通知する', async () => {
+      const t = setup({ now: NOON });
+      await staffReplies(t);
+      t.advance(HOUR);
+      await handleEvent(textEvent('1回目の返事'), t.deps);
+      await handleEvent(textEvent('続き'), t.deps);
+      expect(t.notifier.userRepliedWhilePaused).toHaveBeenCalledTimes(1);
+
+      t.advance(HOUR);
+      const conv = await staffReplies(t, '追加でお聞きします'); // lastStaffReplyAt が進む
+      t.advance(HOUR);
+      await handleEvent(textEvent('2回目の返事'), t.deps);
+      expect(t.notifier.userRepliedWhilePaused).toHaveBeenCalledTimes(2);
+      expect(t.notifier.userRepliedWhilePaused).toHaveBeenLastCalledWith(expect.objectContaining({ conversationId: conv.id }));
+      await handleEvent(textEvent('2回目の続き'), t.deps);
+      expect(t.notifier.userRepliedWhilePaused).toHaveBeenCalledTimes(2);
+    });
+
+    it('担当者の返信が無いまま止まっている（lastStaffReplyAt が null）なら、停止以降の最初の発言で通知する。停止より前の発言は数えない', async () => {
+      const t = setup({ now: NOON });
+      await t.repos.lineUsers.upsert({ lineUserId: USER });
+      const conv = await t.conversation();
+      await t.repos.messages.insert({ conversationId: conv.id, role: 'user', text: '停止の前の発言' });
+      t.advance(HOUR);
+      await t.repos.conversations.update(conv.id, { aiPaused: true, pausedAt: t.deps.clock().toISOString() });
+
+      t.advance(HOUR);
+      await handleEvent(textEvent('停止の後の最初'), t.deps);
+      await handleEvent(textEvent('停止の後の2つ目'), t.deps);
+      expect(t.notifier.userRepliedWhilePaused).toHaveBeenCalledTimes(1);
+    });
+
+    it('lastStaffReplyAt も pausedAt も null の停止は、発言のたびに通知する（起点が無いので最初とみなす）', async () => {
+      const t = setup({ now: NOON });
+      await t.repos.lineUsers.upsert({ lineUserId: USER });
+      const conv = await t.conversation();
+      await t.repos.conversations.update(conv.id, { aiPaused: true });
+      await handleEvent(textEvent('1つ目'), t.deps);
+      expect(t.notifier.userRepliedWhilePaused).toHaveBeenCalledTimes(1);
+      expect(t.messenger.replies).toHaveLength(0);
+    });
+
+    it('24 時間たって AI が自動再開するときは通知しない（AI が返信する）', async () => {
+      const t = setup({ now: NOON, extractions: [SEARCH] });
+      await staffReplies(t);
+      t.advance(24 * HOUR);
+      await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+      expect((await t.conversation()).aiPaused).toBe(false);
+      expect(t.messenger.replies).toHaveLength(1);
+      expect(t.notifier.userRepliedWhilePaused).not.toHaveBeenCalled();
+    });
+
+    it('AI が動いている会話（ai_paused でない）では通知しない', async () => {
+      const t = setup({ extractions: [SEARCH] });
+      await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+      expect(t.notifier.userRepliedWhilePaused).not.toHaveBeenCalled();
+    });
+
+    it('通知が失敗（reject・同期例外）しても handleEvent は投げず、発言は保存されている', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const t = setup({ now: NOON });
+        const conv = await staffReplies(t);
+        vi.mocked(t.notifier.userRepliedWhilePaused).mockRejectedValueOnce(new Error('resend down'));
+        t.advance(60 * 1000);
+        await expect(handleEvent(textEvent('お返事です'), t.deps)).resolves.toBeUndefined();
+        expect((await t.repos.messages.listByConversation(conv.id)).at(-1)).toMatchObject({ role: 'user', text: 'お返事です' });
+        expect(error).toHaveBeenCalledTimes(1);
+
+        const s = setup({ now: NOON });
+        await staffReplies(s);
+        vi.mocked(s.notifier.userRepliedWhilePaused).mockImplementationOnce(() => {
+          throw new Error('sync failure');
+        });
+        s.advance(60 * 1000);
+        await expect(handleEvent(textEvent('お返事です'), s.deps)).resolves.toBeUndefined();
+        expect(error).toHaveBeenCalledTimes(2);
+      } finally {
+        error.mockRestore();
+      }
+    });
+
+    it('営業カレンダーの読み出しが失敗しても handleEvent は投げず、発言は保存されている', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const t = setup({ now: NOON });
+        const conv = await staffReplies(t);
+        vi.spyOn(t.repos.businessCalendar, 'get').mockRejectedValueOnce(new Error('db down'));
+        t.advance(60 * 1000);
+        await expect(handleEvent(textEvent('お返事です'), t.deps)).resolves.toBeUndefined();
+        expect(t.notifier.userRepliedWhilePaused).not.toHaveBeenCalled();
+        expect((await t.repos.messages.listByConversation(conv.id)).at(-1)).toMatchObject({ role: 'user', text: 'お返事です' });
       } finally {
         error.mockRestore();
       }

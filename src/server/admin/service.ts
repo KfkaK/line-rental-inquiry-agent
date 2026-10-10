@@ -5,12 +5,22 @@
  * - `repos` はログインした担当者のセッションのクライアントで作ったもの（RLS が本物の門。service role は使わない）。
  *   呼び出し側（Server Action）が役割（staff）を確かめてから渡す
  * - 利用者へ送った文は role='staff' で会話ログに残す。デモ会話（is_demo）は LINE に送らず、ログにだけ残す
- * - 例外は投げず、画面に出す文を `ActionResult` で返す（DB の失敗はログに出して一般的な文にする）
+ * - 例外は投げず、画面に出す文を `ActionResult` で返す（DB の失敗はログに出して一般的な文にする）。
+ *   ok は「保存した」の意味。保存した後に LINE への送信だけ失敗したときも ok にし、文で手動返信を頼む（画面を読み直させるため）
  */
-import { canTransition, checkConfirmNote, checkRejectReason, checkStaffReply, nextResolvedCount, resolveConfirmedTime, validateCalendar, VIEWING_STATUS_LABEL } from '@/domain/staff';
 import * as msg from '@/domain/messages';
-import type { BusinessCalendar, ViewingStatus } from '@/domain/types';
-import type { Conversation, Repositories, ViewingRequestListItem } from '@/lib/db';
+import {
+  canTransition,
+  checkConfirmNote,
+  checkRejectReason,
+  checkStaffReply,
+  nextResolvedCount,
+  resolveConfirmedTime,
+  validateCalendar,
+  VIEWING_STATUS_LABEL,
+} from '@/domain/staff';
+import { VIEWING_STATUSES, type BusinessCalendar, type ViewingStatus } from '@/domain/types';
+import type { Conversation, Repositories, ViewingRequestListItem, ViewingRequestPatch } from '@/lib/db';
 import type { LineMessenger } from '@/lib/line/messenger';
 
 export interface StaffDeps {
@@ -46,6 +56,17 @@ async function loadViewing(deps: StaffDeps, id: string, to: ViewingStatus): Prom
 }
 
 /**
+ * 状態を変える。確認と更新を1回の UPDATE で行い、2つのタブ・2人の担当者が同時に確定しても片方だけを通す
+ * （両方通ると利用者に食い違う確定の文が2通届く）。先を越されたら false
+ */
+async function applyTransition(deps: StaffDeps, id: string, to: ViewingStatus, patch: ViewingRequestPatch): Promise<boolean> {
+  const from = VIEWING_STATUSES.filter((status) => canTransition(status, to));
+  return (await deps.repos.viewingRequests.transition(id, from, { ...patch, status: to })) !== null;
+}
+
+const RACED = 'ほかの操作で状態が変わりました。画面を読み直してから、もう一度お試しください。';
+
+/**
  * 利用者へ送り、会話ログに残す。送れなかったら false（状態は保存済みなので、担当者に手動返信で伝えてもらう）。
  * デモ会話は送らずにログだけ残す
  */
@@ -58,7 +79,12 @@ async function sendToUser(deps: StaffDeps, conversation: Conversation, text: str
       return false;
     }
   }
-  await deps.repos.messages.insert({ conversationId: conversation.id, role: 'staff', text });
+  try {
+    await deps.repos.messages.insert({ conversationId: conversation.id, role: 'staff', text });
+  } catch (error) {
+    // 利用者には届いている。失敗を返すと担当者が送り直して2通になるので、ログだけ残して送れた扱いにする
+    console.error('[admin] 担当者の発言を会話ログに残せませんでした', error instanceof Error ? error.message : error);
+  }
   return true;
 }
 
@@ -66,7 +92,7 @@ function sentMessage(conversation: Conversation, what: string): string {
   return conversation.isDemo ? `${what}（デモの会話なので LINE には送っていません）` : `${what}。LINE でお知らせしました。`;
 }
 
-const SEND_FAILED = 'LINE への送信に失敗しました。お手数ですが、会話ログの手動返信でお伝えください。';
+const SEND_FAILED = 'ただし LINE への送信に失敗しました。お手数ですが、会話ログの手動返信でお伝えください。';
 
 export async function confirmViewing(
   deps: StaffDeps,
@@ -81,13 +107,10 @@ export async function confirmViewing(
     const note = checkConfirmNote(input.note);
     if (!note.ok) return fail(note.error);
 
-    await deps.repos.viewingRequests.update(viewing.id, {
-      status: 'confirmed',
-      confirmedTime: time.value,
-      staffNote: note.value || null,
-    });
+    const saved = await applyTransition(deps, viewing.id, 'confirmed', { confirmedTime: time.value, staffNote: note.value || null });
+    if (!saved) return fail(RACED);
     const text = msg.viewingConfirmed(viewing.propertyName ?? viewing.propertyId, time.value, note.value);
-    if (!(await sendToUser(deps, conversation, text))) return fail(`確定は保存しました。${SEND_FAILED}`);
+    if (!(await sendToUser(deps, conversation, text))) return done(`確定は保存しました。${SEND_FAILED}`);
     return done(sentMessage(conversation, `${msg.formatViewingTime(time.value)} で確定しました`));
   } catch (error) {
     return unexpected('内見の確定', error);
@@ -102,9 +125,9 @@ export async function rejectViewing(deps: StaffDeps, input: { viewingRequestId: 
     const reason = checkRejectReason(input.reason);
     if (!reason.ok) return fail(reason.error);
 
-    await deps.repos.viewingRequests.update(viewing.id, { status: 'rejected', staffNote: reason.value });
+    if (!(await applyTransition(deps, viewing.id, 'rejected', { staffNote: reason.value }))) return fail(RACED);
     const text = msg.viewingRejected(viewing.propertyName ?? viewing.propertyId, reason.value);
-    if (!(await sendToUser(deps, conversation, text))) return fail(`却下は保存しました。${SEND_FAILED}`);
+    if (!(await sendToUser(deps, conversation, text))) return done(`却下は保存しました。${SEND_FAILED}`);
     return done(sentMessage(conversation, '却下しました'));
   } catch (error) {
     return unexpected('内見の却下', error);
@@ -119,7 +142,7 @@ export async function setViewingProgress(
   try {
     const target = await loadViewing(deps, input.viewingRequestId, input.status);
     if ('ok' in target) return target;
-    await deps.repos.viewingRequests.update(target.viewing.id, { status: input.status });
+    if (!(await applyTransition(deps, target.viewing.id, input.status, {}))) return fail(RACED);
     return done(`「${VIEWING_STATUS_LABEL[input.status]}」にしました。`);
   } catch (error) {
     return unexpected('内見の状態の変更', error);
@@ -130,7 +153,7 @@ export async function setViewingProgress(
 
 /**
  * 担当者の手動返信（DESIGN.md 3.4）。AI と人が同時に返信しないよう、送る前に AI を止める（不変条件 8）。
- * 送れなかったら AI は止めたまま（「AIに戻す」で再開できる）
+ * 最終の担当者返信（24 時間の自動再開の起点）は送れた後に書く。送れなかったら AI は止めたまま（「AIに戻す」で再開できる）
  */
 export async function sendStaffReply(deps: StaffDeps, input: { conversationId: string; text: string }): Promise<ActionResult> {
   try {
@@ -140,14 +163,11 @@ export async function sendStaffReply(deps: StaffDeps, input: { conversationId: s
     if (!conversation) return fail('この会話は見つかりません。');
 
     const now = deps.clock().toISOString();
-    await deps.repos.conversations.update(conversation.id, {
-      aiPaused: true,
-      pausedAt: conversation.aiPaused ? conversation.pausedAt : now,
-      lastStaffReplyAt: now,
-    });
+    if (!conversation.aiPaused) await deps.repos.conversations.update(conversation.id, { aiPaused: true, pausedAt: now });
     if (!(await sendToUser(deps, conversation, text.value))) {
       return fail('LINE への送信に失敗しました。AI は止めたままです（「AIに戻す」で再開できます）。');
     }
+    await deps.repos.conversations.update(conversation.id, { lastStaffReplyAt: now });
     return done(sentMessage(conversation, '返信しました。AI の自動応答は止めています'));
   } catch (error) {
     return unexpected('手動返信', error);

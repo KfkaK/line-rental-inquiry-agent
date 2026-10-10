@@ -5,6 +5,7 @@ import type { StaffNotifier } from '@/server/handleEvent';
  * 担当者への通知メール（Resend の REST API を fetch で呼ぶ。SDK は入れない）。
  *
  * - 個人情報（LINE ユーザー ID・表示名）は本文に入れない。詳細は管理画面のリンクで見てもらう（不変条件 12）
+ * - 担当者対応中の返信の通知にも利用者の発言の本文は載せない（名前・電話番号の返事が入りうる）
  * - 実装は例外を投げない。HTTP エラー・ネットワークエラー・時間切れは console.error に操作名と status だけ出して握りつぶす
  *   （本文・宛先・API キーはログに出さない）。通知の失敗で利用者への返信や保存を止めない
  */
@@ -36,6 +37,7 @@ export interface EmailContent {
 
 type ViewingInfo = Parameters<StaffNotifier['viewingRequested']>[0];
 type HandoffInfo = Parameters<StaffNotifier['handoffRequested']>[0];
+type PausedReplyInfo = Parameters<StaffNotifier['userRepliedWhilePaused']>[0];
 
 /** 件名に改行を入れない（物件名などに紛れても1行に保つ） */
 function oneLine(value: string): string {
@@ -82,6 +84,21 @@ export function buildHandoffEmail(info: HandoffInfo, baseUrl: string): EmailCont
   return { subject, text: lines.join('\n') };
 }
 
+/** 担当者が対応中（AI 停止中）の会話への利用者の返信。本文は載せない（担当者が聞いた個人情報の返事が入りうる）。詳細はリンク先で */
+export function buildPausedReplyEmail(info: PausedReplyInfo, baseUrl: string): EmailContent {
+  const subject = `【返信あり】担当者が対応中の会話${info.receivedOutsideHours ? '（営業時間外）' : ''}`;
+  const text = [
+    '担当者が対応中（AI 停止中）の会話に、利用者から返信がありました。',
+    '',
+    receptionLine(info.receivedOutsideHours),
+    '',
+    `会話の詳細: ${baseUrl}/admin/conversations/${info.conversationId}`,
+    '',
+    'AI は最終の担当者返信から 24 時間で自動で再開します。',
+  ].join('\n');
+  return { subject, text };
+}
+
 export function createResendNotifier(options: ResendNotifierOptions): StaffNotifier {
   const baseUrl = options.baseUrl.replace(/\/+$/, '');
   const send = async (operation: string, build: () => EmailContent): Promise<void> => {
@@ -104,5 +121,6 @@ export function createResendNotifier(options: ResendNotifierOptions): StaffNotif
   return {
     viewingRequested: (info) => send('内見の仮受付', () => buildViewingEmail(info, baseUrl)),
     handoffRequested: (info) => send('引き継ぎ', () => buildHandoffEmail(info, baseUrl)),
+    userRepliedWhilePaused: (info) => send('担当者対応中の返信', () => buildPausedReplyEmail(info, baseUrl)),
   };
 }

@@ -92,6 +92,9 @@ export const logNotifier: StaffNotifier = {
       `[notify] 引き継ぎメモ 会話=${info.conversationId} 話題=${info.topic ?? 'なし'} 物件=${info.propertyNames.length}件 時間外=${info.receivedOutsideHours}`,
     );
   },
+  async userRepliedWhilePaused(info) {
+    console.log(`[notify] 担当者対応中の返信 会話=${info.conversationId} 時間外=${info.receivedOutsideHours}`);
+  },
 };
 
 /** 通知メールの管理画面リンクの起点。APP_BASE_URL → Vercel の本番 URL → ローカル。末尾の / は落とす */

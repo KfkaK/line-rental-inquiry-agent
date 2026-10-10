@@ -73,6 +73,13 @@ export interface StaffNotifier {
     propertyNames: string[];
     receivedOutsideHours: boolean;
   }): Promise<void>;
+  /**
+   * 担当者が対応中（AI 停止中）の会話に、利用者から返信があった。最終の担当者返信につき最初の発言のときだけ呼ぶ
+   * （続けて届いた発言でメールを重ねない）。
+   * **利用者の発言の本文は渡さない**（担当者が聞いた名前・電話番号の返事が入りうるので、メールに個人情報を載せない）。
+   * 詳細は管理画面の会話ログで見てもらう
+   */
+  userRepliedWhilePaused(info: { conversationId: string; receivedOutsideHours: boolean }): Promise<void>;
 }
 
 export interface Deps {
@@ -141,7 +148,20 @@ export async function handleEvent(event: webhook.Event, deps: Deps): Promise<voi
       await repos.conversations.update(conv.id, { aiPaused: false, pausedAt: null });
       conv = { ...conv, aiPaused: false, pausedAt: null };
     } else {
+      // 最終の担当者返信（無ければ停止）以降で、利用者の最初の発言のときだけ担当者へ知らせる。
+      // 数えるのは保存の前（保存した後だと必ず 1 以上になる）
+      const first = await isFirstUserMessageSinceStaff(repos, conv);
       await repos.messages.insert({ conversationId: conv.id, role: 'user', text: userText });
+      if (first) {
+        const conversationId = conv.id;
+        // 本文は渡さない（StaffNotifier.userRepliedWhilePaused）。営業カレンダーの読み出しの失敗も通知の失敗として扱う
+        await notifySafely('担当者対応中の返信', async () =>
+          deps.notifier.userRepliedWhilePaused({
+            conversationId,
+            receivedOutsideHours: !isOpenAt(startedAt, await repos.businessCalendar.get()),
+          }),
+        );
+      }
       return;
     }
   }
@@ -303,6 +323,23 @@ export async function handleEvent(event: webhook.Event, deps: Deps): Promise<voi
       );
     }
     await Promise.all(notifications);
+  }
+}
+
+/**
+ * 有人対応中の会話で、これから保存する発言が「最終の担当者返信以降で最初の利用者の発言」か。
+ * 担当者の返信なしで止まっている（lastStaffReplyAt が null）なら停止（pausedAt）以降、どちらも null なら最初とみなす。
+ * 数えられなかったとき（DB の一時的な失敗）は通知する側に倒す（発言の保存は止めない）
+ */
+async function isFirstUserMessageSinceStaff(repos: Repositories, conv: Conversation): Promise<boolean> {
+  const since = conv.lastStaffReplyAt ?? conv.pausedAt;
+  const sinceMs = since === null ? Number.NaN : Date.parse(since);
+  if (Number.isNaN(sinceMs)) return true;
+  try {
+    return (await repos.messages.countUserMessagesSince(conv.id, new Date(sinceMs))) === 0;
+  } catch (error) {
+    console.error('[handleEvent] 担当者対応中の発言の数え上げに失敗しました', error instanceof Error ? error.message : error);
+    return true;
   }
 }
 

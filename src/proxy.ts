@@ -18,6 +18,8 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   if (isAdminPreview() || !url || !key) return NextResponse.next({ request });
 
   let response = NextResponse.next({ request });
+  // 認証の cookie を書くときに付けるキャッシュ禁止のヘッダー（リダイレクトにも同じものを付ける）
+  let authHeaders: Record<string, string> = {};
   const supabase = createServerClient(url, key, {
     cookies: {
       getAll() {
@@ -28,6 +30,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
         response = NextResponse.next({ request });
         for (const { name, value, options } of cookiesToSet) response.cookies.set(name, value, options);
         // 認証の cookie を書くレスポンスは CDN にキャッシュさせない（他人のセッションが配られないように）
+        authHeaders = headers;
         for (const [header, value] of Object.entries(headers)) response.headers.set(header, value);
       },
     },
@@ -39,6 +42,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   if (!loggedIn && request.nextUrl.pathname !== LOGIN_PATH) {
     const redirect = NextResponse.redirect(new URL(LOGIN_PATH, request.url));
     for (const cookie of response.cookies.getAll()) redirect.cookies.set(cookie);
+    for (const [header, value] of Object.entries(authHeaders)) redirect.headers.set(header, value);
     return redirect;
   }
   return response;

@@ -12,6 +12,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { connection } from 'next/server';
+import { cache } from 'react';
 import { createSupabaseRepositories, type Repositories } from '@/lib/db';
 import { requireEnv } from '@/lib/env';
 import { createLineMessenger } from '@/lib/line/messenger';
@@ -58,8 +59,11 @@ interface AdminSession {
   client: SupabaseClient | null;
 }
 
-/** ログイン中の利用者。未ログインなら null。JWT の署名を検証して読む（cookie の中身をそのまま信じない） */
-async function getAdminSession(): Promise<AdminSession | null> {
+/**
+ * ログイン中の利用者。未ログインなら null。JWT の署名を検証して読む（cookie の中身をそのまま信じない）。
+ * ヘッダー・帯・ページが同じリクエストで読むので、描画中は1リクエスト1回にまとめる（cache）
+ */
+const getAdminSession = cache(async (): Promise<AdminSession | null> => {
   // 管理画面はリクエストごとに描く（プレビューでは cookie を読まないので、ここで明示する）。呼んだ後は new Date() を使ってよい
   await connection();
   if (isAdminPreview()) return { user: { email: 'preview@example.test', role: 'staff', preview: true }, client: null };
@@ -68,7 +72,7 @@ async function getAdminSession(): Promise<AdminSession | null> {
   if (error || !data?.claims) return null;
   const role: unknown = data.claims.app_metadata?.role;
   return { user: { email: data.claims.email ?? null, role: isAdminRole(role) ? role : null, preview: false }, client };
-}
+});
 
 export async function getAdminUser(): Promise<AdminUser | null> {
   return (await getAdminSession())?.user ?? null;

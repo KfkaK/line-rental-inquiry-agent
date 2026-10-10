@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { connection } from 'next/server';
 import { Suspense } from 'react';
 import { optionalEnv } from '@/lib/env';
 import { isAdminPreview } from '@/server/admin/previewFlag';
@@ -11,20 +12,21 @@ import { cardClass, hintClass } from '../_components/ui';
 
 export const metadata: Metadata = { title: 'ログイン' };
 
-export default function LoginPage({ searchParams }: PageProps<'/admin/login'>) {
+export default function LoginPage() {
   return (
     <div className="mx-auto max-w-md space-y-6">
       <h1 className="text-xl font-semibold">ログイン</h1>
       <Suspense fallback={<p className="text-sm text-muted">読み込み中…</p>}>
-        <LoginContent searchParams={searchParams} />
+        <LoginContent />
       </Suspense>
     </div>
   );
 }
 
-async function LoginContent({ searchParams }: { searchParams: PageProps<'/admin/login'>['searchParams'] }) {
-  const { reason } = await searchParams;
-
+/** 役割の無いアカウントは requireAdmin が ?reason=norole つきでここへ送るが、表示はログイン中かどうかだけで決める */
+async function LoginContent() {
+  // 環境変数の有無で出し分けるので、ビルド時の値で固めずリクエストごとに描く
+  await connection();
   if (isAdminPreview()) {
     return (
       <div className={`${cardClass} space-y-3`}>
@@ -51,7 +53,7 @@ async function LoginContent({ searchParams }: { searchParams: PageProps<'/admin/
   const user = await getAdminUser();
   if (user?.role) redirect('/admin');
 
-  if (reason === 'norole' || user) {
+  if (user) {
     return (
       <div className={`${cardClass} space-y-4`}>
         <p className="leading-relaxed">このアカウントには管理画面の権限がありません。管理者に役割の付与を依頼してください。</p>

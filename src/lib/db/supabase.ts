@@ -285,6 +285,17 @@ export function createSupabaseRepositories(client: SupabaseClient = createServic
         return count ?? 0;
       },
 
+      async countUserMessagesSince(conversationId, since) {
+        const { count, error } = await client
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('conversation_id', conversationId)
+          .eq('role', 'user')
+          .gte('created_at', since.toISOString());
+        if (error) throw fail('messages.countUserMessagesSince', error);
+        return count ?? 0;
+      },
+
       async sumCostSince(since) {
         // 行を取って足すと 1000 行の上限で過少になる。SQL 関数で集計する
         const { data, error } = await client.rpc('sum_message_cost_since', { p_since: since.toISOString() });
@@ -365,6 +376,31 @@ export function createSupabaseRepositories(client: SupabaseClient = createServic
         if (error) throw fail('viewingRequests.update', error);
         if (!data) throw notFound('viewingRequests.update', '内見の仮受付', id);
         return rowToViewingRequest(data as ViewingRequestDbRow);
+      },
+
+      async transition(id, from, patch) {
+        const operation = 'viewingRequests.transition';
+        const row = viewingRequestPatchToRow(patch);
+        if (Object.keys(row).length === 0) {
+          // 何も書かないので競合しない。読むだけで判定する
+          const current = await getViewingRequestRow(operation, id);
+          if (!current) throw notFound(operation, '内見の仮受付', id);
+          return from.includes(current.status) ? current : null;
+        }
+        // 「いまの status が from のとき」を WHERE に入れ、確認と更新を1回の UPDATE で行う
+        const { data, error } = await client
+          .from('viewing_requests')
+          .update(row)
+          .eq('id', id)
+          .in('status', [...from])
+          .select()
+          .maybeSingle();
+        if (error) throw fail(operation, error);
+        if (data) return rowToViewingRequest(data as ViewingRequestDbRow);
+        // 更新できなかった。行が無いのか、status が合わなかったのかを引き直して決める
+        const current = await getViewingRequestRow(operation, id);
+        if (!current) throw notFound(operation, '内見の仮受付', id);
+        return null;
       },
     },
 

@@ -1,7 +1,10 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { Suspense } from 'react';
-import { formatJstDateTime } from './_lib/format';
+import { displayNameOf, formatJstDateTime } from './_lib/format';
+import { aiResumeAt } from './_lib/resume';
 import { MorningRow } from './_components/MorningRow';
+import { Chip } from './_components/ui';
 import { loadMorningList, type MorningItem } from '@/server/admin/morningList';
 import { requireAdmin } from '@/server/admin/session';
 
@@ -27,7 +30,11 @@ async function MorningContent() {
   const { repos } = await requireAdmin();
   const now = new Date();
   const calendar = await repos.businessCalendar.get();
-  const list = await loadMorningList(repos, now, calendar);
+  const [list, paused] = await Promise.all([
+    loadMorningList(repos, now, calendar),
+    // 担当者が手動返信して AI を止めている会話（人の会話が続いている。利用者の返信はメールでも知らせる）
+    repos.conversations.listRecent({ aiPaused: true, limit: 50 }),
+  ]);
 
   // 引き継ぎ（仮受付の無い会話）の行に、メモの対象物件の名前を出す
   const propertyIds = [
@@ -69,6 +76,35 @@ async function MorningContent() {
           <span className="ml-2 text-sm font-normal text-muted">{list.earlier.length}件</span>
         </h2>
         {section(list.earlier, 'それ以前の未対応はありません')}
+      </section>
+      <section aria-labelledby="paused-heading" className="space-y-3">
+        <h2 id="paused-heading" className="text-base font-semibold">
+          担当者が対応中の会話（AI 停止中）
+          <span className="ml-2 text-sm font-normal text-muted">{paused.length}件</span>
+        </h2>
+        {paused.length === 0 ? (
+          <p className="rounded-lg border border-line bg-surface p-4 text-sm text-muted">AI を止めている会話はありません</p>
+        ) : (
+          <ul className="space-y-3">
+            {paused.map((c) => {
+              const resumeAt = aiResumeAt(c.lastStaffReplyAt);
+              return (
+                <li key={c.id}>
+                  <Link href={`/admin/conversations/${c.id}`} className="block rounded-lg border border-line bg-surface p-4 hover:border-line-strong">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <Chip tone="soft">AI停止中</Chip>
+                      <span className="font-semibold">{displayNameOf(c.displayName)}</span>
+                    </div>
+                    <p className="mt-2 text-sm leading-relaxed text-muted">
+                      最終動作 <time dateTime={c.updatedAt}>{formatJstDateTime(c.updatedAt)}</time>
+                      {resumeAt ? ` ・ ${formatJstDateTime(resumeAt)} に AI が自動で再開` : ' ・ 「AIに戻す」まで停止'}
+                    </p>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </section>
     </>
   );

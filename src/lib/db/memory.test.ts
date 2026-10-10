@@ -394,6 +394,29 @@ describe('messages', () => {
     expect(await repos.messages.countExtractedTurnsSince('U-none', since)).toBe(0);
   });
 
+  it('countUserMessagesSince は その会話の利用者の発言（role=user）だけを since 以降（含む）で数える', async () => {
+    const { repos, advance, at, conversation } = await withConversation('U1');
+    await repos.lineUsers.upsert({ lineUserId: 'U2' });
+    const other = await repos.conversations.getOrCreate('U2');
+
+    await repos.messages.insert({ conversationId: conversation.id, role: 'user', text: '古い' });
+    advance(30_000);
+    const since = at();
+    await repos.messages.insert({ conversationId: conversation.id, role: 'user', text: 'ちょうど' });
+    // AI・担当者の発言と、別の会話の利用者の発言は数えない
+    await repos.messages.insert({ conversationId: conversation.id, role: 'ai', text: 'AI' });
+    await repos.messages.insert({ conversationId: conversation.id, role: 'staff', text: '担当者' });
+    await repos.messages.insert({ conversationId: other.id, role: 'user', text: '別の会話' });
+    advance(1000);
+    await repos.messages.insert({ conversationId: conversation.id, role: 'user', text: '新しい' });
+
+    expect(await repos.messages.countUserMessagesSince(conversation.id, since)).toBe(2);
+    expect(await repos.messages.countUserMessagesSince(conversation.id, new Date(T0))).toBe(3);
+    expect(await repos.messages.countUserMessagesSince(conversation.id, new Date(at().getTime() + 1))).toBe(0);
+    expect(await repos.messages.countUserMessagesSince(other.id, since)).toBe(1);
+    expect(await repos.messages.countUserMessagesSince('nope', since)).toBe(0);
+  });
+
   it('sumCostSince は since 以降（含む）の全ロールの費用を合計する', async () => {
     const { repos, advance, at, conversation } = await withConversation();
     await repos.messages.insert({ conversationId: conversation.id, role: 'ai', text: '前日', costUsd: 5 });
@@ -500,6 +523,40 @@ describe('viewingRequests', () => {
     await expectDbError(repos.viewingRequests.update('nope', { status: 'rejected' }), 'NOT_FOUND');
     expect(await repos.viewingRequests.getById('nope')).toBeNull();
     expect(await repos.viewingRequests.getById(request.id)).toMatchObject({ id: request.id, displayName: 'たろう', propertyName: 'レジデンス渋谷' });
+  });
+
+  it('transition は status が from のどれかのときだけ更新する。入っていなければ何も変えずに null。無い ID は NOT_FOUND', async () => {
+    const { repos, advance, conversation } = await withConversation();
+    const create = (propertyId: string) =>
+      repos.viewingRequests.create({ conversationId: conversation.id, propertyId, candidateTimes: ['2026-10-10'], receivedOutsideHours: false });
+    const a = await create('P1');
+    advance(MINUTE);
+
+    // from に入っている（pending ∈ [pending, in_progress]）→ 更新して返す。updatedAt も進む
+    const confirmed = await repos.viewingRequests.transition(a.id, ['pending', 'in_progress'], {
+      status: 'confirmed',
+      confirmedTime: '2026-10-10',
+      staffNote: '確定',
+    });
+    expect(confirmed).toMatchObject({ id: a.id, status: 'confirmed', confirmedTime: '2026-10-10', staffNote: '確定', updatedAt: '2026-10-07T00:01:00.000Z' });
+    expect(confirmed?.createdAt).toBe(a.createdAt);
+
+    // 2つ目のタブからの二重送信: もう confirmed なので null。値も updatedAt も変えない
+    advance(MINUTE);
+    expect(await repos.viewingRequests.transition(a.id, ['pending', 'in_progress'], { status: 'rejected', staffNote: '二重' })).toBeNull();
+    expect(await repos.viewingRequests.transition(a.id, [], { status: 'rejected' })).toBeNull();
+    const after = await repos.viewingRequests.getById(a.id);
+    expect(after).toMatchObject({ status: 'confirmed', confirmedTime: '2026-10-10', staffNote: '確定', updatedAt: '2026-10-07T00:01:00.000Z' });
+
+    // 空の patch は、from に入っていれば現在の行をそのまま返し（updatedAt も進めない）、入っていなければ null
+    const b = await create('P2');
+    advance(MINUTE);
+    expect(await repos.viewingRequests.transition(b.id, ['pending'], {})).toEqual(b);
+    expect(await repos.viewingRequests.transition(b.id, ['confirmed'], {})).toBeNull();
+
+    await expectDbError(repos.viewingRequests.transition('nope', ['pending'], { status: 'rejected' }), 'NOT_FOUND');
+    // 行が無いときは from に関わらず NOT_FOUND（null と区別する）
+    await expectDbError(repos.viewingRequests.transition('nope', [], { status: 'rejected' }), 'NOT_FOUND');
   });
 
   it('listByConversation はその会話の仮受付を届いた順に。一覧の行は会話の対応済みの数とデモかを持つ', async () => {

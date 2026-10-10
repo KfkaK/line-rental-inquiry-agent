@@ -315,6 +315,13 @@ export function createMemoryRepositories(seed: MemorySeed = {}, options: MemoryO
         ).length;
       },
 
+      async countUserMessagesSince(conversationId, since) {
+        const from = since.getTime();
+        return messages.filter(
+          (m) => m.conversationId === conversationId && m.role === 'user' && Date.parse(m.createdAt) >= from,
+        ).length;
+      },
+
       async sumCostSince(since) {
         const from = since.getTime();
         const sum = messages.filter((m) => Date.parse(m.createdAt) >= from).reduce((total, m) => total + m.costUsd, 0);
@@ -376,6 +383,17 @@ export function createMemoryRepositories(seed: MemorySeed = {}, options: MemoryO
       async update(id, patch: ViewingRequestPatch) {
         const current = viewingRequests.get(id);
         if (!current) throw notFound('viewingRequests.update', '内見の仮受付', id);
+        if (Object.keys(viewingRequestPatchToRow(patch)).length === 0) return copy(current);
+        const next = { ...withPatch<ViewingRequest>(current, patch), updatedAt: now() };
+        viewingRequests.set(id, next);
+        return copy(next);
+      },
+
+      async transition(id, from, patch: ViewingRequestPatch) {
+        const current = viewingRequests.get(id);
+        if (!current) throw notFound('viewingRequests.transition', '内見の仮受付', id);
+        // 確認と更新の間に await を挟まない（Supabase 実装の「条件つき UPDATE 1回」と同じ原子性）
+        if (!from.includes(current.status)) return null;
         if (Object.keys(viewingRequestPatchToRow(patch)).length === 0) return copy(current);
         const next = { ...withPatch<ViewingRequest>(current, patch), updatedAt: now() };
         viewingRequests.set(id, next);

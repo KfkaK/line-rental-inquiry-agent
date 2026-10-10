@@ -18,6 +18,7 @@ import {
   sendStaffReply,
   setViewingProgress,
   type ActionResult,
+  type StaffDeps,
 } from '@/server/admin/service';
 import { createSessionClient, getStaffDeps } from '@/server/admin/session';
 
@@ -35,7 +36,7 @@ function toState(result: ActionResult): FormState {
 }
 
 /** 権限を確かめてから操作を呼ぶ */
-async function asStaff(run: (deps: Exclude<Awaited<ReturnType<typeof getStaffDeps>>, { error: string }>) => Promise<ActionResult>): Promise<FormState> {
+async function asStaff(run: (deps: StaffDeps) => Promise<ActionResult>): Promise<FormState> {
   const deps = await getStaffDeps();
   if ('error' in deps) return { ok: false, message: deps.error };
   return toState(await run(deps));

@@ -263,6 +263,11 @@ export interface MessageRepository {
    * `since` 以降（含む）の件数。ボタン・友だち追加・制限で断った発話は LLM を呼ばないので数えない（意思決定ログ10）
    */
   countExtractedTurnsSince(lineUserId: string, since: Date): Promise<number>;
+  /**
+   * 担当者への「返信あり」通知の判定用。その会話で、利用者の発言（role='user'）のうち
+   * `since` 以降（含む）の件数。ボタン操作（`[ボタン] …`）も利用者の発言として数える
+   */
+  countUserMessagesSince(conversationId: string, since: Date): Promise<number>;
   /** 1 日の費用上限用。`since` 以降（含む）の全メッセージの `costUsd` の合計 */
   sumCostSince(since: Date): Promise<number>;
 }
@@ -279,6 +284,13 @@ export interface ViewingRequestRepository {
   listByConversation(conversationId: string): Promise<ViewingRequestListItem[]>;
   /** 空の patch は何もしない。対象が無ければ DbError code 'NOT_FOUND' */
   update(id: string, patch: ViewingRequestPatch): Promise<ViewingRequest>;
+  /**
+   * 確定・却下の二重送信を防ぐ（確認と更新を1回の UPDATE で行う）。
+   * いまの status が `from` のどれかのときだけ patch を当て、更新後の行を返す（updatedAt も進む）。
+   * status が `from` に無ければ何も変えずに null（ほかの操作が先に状態を変えた）。行が無ければ DbError code 'NOT_FOUND'。
+   * 空の patch でも status が `from` に無ければ null。
+   */
+  transition(id: string, from: readonly ViewingStatus[], patch: ViewingRequestPatch): Promise<ViewingRequest | null>;
 }
 
 export interface BusinessCalendarRepository {

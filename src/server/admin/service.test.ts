@@ -101,14 +101,41 @@ describe('confirmViewing', () => {
     expect(await confirmViewing(deps, { viewingRequestId: 'nope', candidate: '2026-10-11', time: '10:00', note: '' })).toMatchObject({ ok: false });
   });
 
-  it('LINE への送信に失敗しても確定は保存し、手動返信で伝えるよう返す（会話ログには残さない）', async () => {
+  it('LINE への送信に失敗しても確定は保存し（ok で画面を読み直させる）、手動返信で伝えるよう返す（会話ログには残さない）', async () => {
     const { deps, repos, messenger, viewing, staffMessages } = await setup();
     messenger.failPushWith = new Error('429');
     const result = await confirmViewing(deps, { viewingRequestId: viewing.id, candidate: '2026-10-11', time: '10:00', note: '' });
-    expect(result).toMatchObject({ ok: false });
-    expect(!result.ok && result.error).toContain('確定は保存しました');
+    expect(result).toEqual({
+      ok: true,
+      message: '確定は保存しました。ただし LINE への送信に失敗しました。お手数ですが、会話ログの手動返信でお伝えください。',
+    });
     expect((await repos.viewingRequests.getById(viewing.id))?.status).toBe('confirmed');
     expect(await staffMessages()).toEqual([]);
+  });
+
+  it('2つのタブで同時に確定しても片方だけ通し、LINE には1通だけ送る', async () => {
+    const { deps, repos, messenger, viewing } = await setup();
+    const [a, b] = await Promise.all([
+      confirmViewing(deps, { viewingRequestId: viewing.id, candidate: '2026-10-11', time: '10:00', note: '' }),
+      confirmViewing(deps, { viewingRequestId: viewing.id, candidate: '2026-10-11', time: '15:00', note: '' }),
+    ]);
+    expect([a.ok, b.ok].sort()).toEqual([false, true]);
+    expect(messenger.pushes).toHaveLength(1);
+    const winner = a.ok ? '2026-10-11T10:00' : '2026-10-11T15:00';
+    expect((await repos.viewingRequests.getById(viewing.id))?.confirmedTime).toBe(winner);
+    expect(pushedTexts(messenger)[0]).toContain(winner.endsWith('10:00') ? '10:00' : '15:00');
+  });
+
+  it('LINE に送れた後に会話ログへの保存だけ失敗しても、送れた扱いにする（担当者に送り直させない）', async () => {
+    const { deps, messenger, viewing } = await setup();
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    deps.repos.messages.insert = async () => {
+      throw new Error('timeout');
+    };
+    const result = await confirmViewing(deps, { viewingRequestId: viewing.id, candidate: '2026-10-11', time: '10:00', note: '' });
+    expect(result).toMatchObject({ ok: true, message: '10月11日(日) 10:00 で確定しました。LINE でお知らせしました。' });
+    expect(messenger.pushes).toHaveLength(1);
+    spy.mockRestore();
   });
 
   it('デモ会話は LINE に送らず、会話ログにだけ残す', async () => {
@@ -123,7 +150,7 @@ describe('confirmViewing', () => {
   it('DB の想定外の失敗は投げずに一般的な文で返す', async () => {
     const { deps, viewing } = await setup();
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    deps.repos.viewingRequests.update = async () => {
+    deps.repos.viewingRequests.transition = async () => {
       throw new Error('connection reset');
     };
     const result = await confirmViewing(deps, { viewingRequestId: viewing.id, candidate: '2026-10-11', time: '10:00', note: '' });
@@ -188,7 +215,8 @@ describe('sendStaffReply と resumeAi', () => {
     const result = await sendStaffReply(deps, { conversationId: conversation.id, text: 'こんにちは' });
     expect(result).toMatchObject({ ok: false });
     expect(!result.ok && result.error).toContain('AI は止めたまま');
-    expect((await repos.conversations.getById(conversation.id))?.aiPaused).toBe(true);
+    // 届いていない返信は 24 時間の自動再開の起点にしない
+    expect(await repos.conversations.getById(conversation.id)).toMatchObject({ aiPaused: true, lastStaffReplyAt: null });
     expect(await staffMessages()).toEqual([]);
   });
 
