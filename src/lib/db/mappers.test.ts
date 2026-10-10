@@ -454,9 +454,15 @@ function columns(table: string): string[] {
   return [...created, ...added];
 }
 
-/** `col text ... check (col in ('a', 'b'))` の値の一覧 */
+/**
+ * `col text ... check (col in ('a', 'b'))` の値の一覧。後のマイグレーションが
+ * `add constraint <table>_<col>_check check (col in (...))` で付け替えていれば、最後のものを使う
+ */
 function checkValues(table: string, column: string): string[] {
-  const match = new RegExp(`^\\s*${column} text[^\\n]*check \\(${column} in \\(([^)]*)\\)\\)`, 'm').exec(tableBlock(table));
+  const replaced = [
+    ...sql.matchAll(new RegExp(`add constraint ${table}_${column}_check check \\(${column} in \\(([^)]*)\\)\\)`, 'g')),
+  ].at(-1);
+  const match = replaced ?? new RegExp(`^\\s*${column} text[^\\n]*check \\(${column} in \\(([^)]*)\\)\\)`, 'm').exec(tableBlock(table));
   if (!match) throw new Error(`${table}.${column} の check (... in (...)) が見つかりません`);
   return [...match[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
 }

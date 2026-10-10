@@ -41,6 +41,7 @@ const STATUS_TONE: Record<ViewingStatus, ChipTone> = {
   in_progress: 'soft',
   confirmed: 'outline',
   rejected: 'plain',
+  closed_manually: 'outline',
 };
 
 /** 内見の仮受付の状態。手がまだ要る「未対応」だけを塗りつぶす */

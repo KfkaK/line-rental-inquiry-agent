@@ -5,7 +5,9 @@ import { STAFF_NOTE_MAX_CHARS, STAFF_REPLY_MAX_CHARS } from './rules';
 import {
   VIEWING_STATUS_LABEL,
   canTransition,
+  canCloseManually,
   checkConfirmNote,
+  checkManualCloseNote,
   checkRejectReason,
   checkStaffReply,
   isOpenViewing,
@@ -27,17 +29,34 @@ describe('内見の仮受付の状態', () => {
     expect(canTransition('in_progress', 'rejected')).toBe(true);
   });
 
-  it('確定・却下は終わり（LINE で知らせた後なので戻さない）。同じ状態への遷移もしない', () => {
+  it('確定・却下・手動で対応済みは終わり（LINE で知らせた後・取り決めた後なので戻さない）。同じ状態への遷移もしない', () => {
     for (const to of VIEWING_STATUSES) {
       expect(canTransition('confirmed', to)).toBe(false);
       expect(canTransition('rejected', to)).toBe(false);
+      expect(canTransition('closed_manually', to)).toBe(false);
     }
+    expect(canTransition('pending', 'closed_manually')).toBe(true);
+    expect(canTransition('in_progress', 'closed_manually')).toBe(true);
     expect(canTransition('pending', 'pending')).toBe(false);
   });
 
   it('担当者の手が要るのは未対応と対応中。表示名がすべての状態にある', () => {
     expect(VIEWING_STATUSES.filter(isOpenViewing)).toEqual(['pending', 'in_progress']);
-    expect(VIEWING_STATUSES.map((s) => VIEWING_STATUS_LABEL[s])).toEqual(['未対応', '対応中', '確定', '却下']);
+    expect(VIEWING_STATUSES.map((s) => VIEWING_STATUS_LABEL[s])).toEqual(['未対応', '対応中', '確定', '却下', '手動で対応済み']);
+  });
+
+  it('手動で対応済みにできるのは、仮受付が届いた後に担当者が手動返信した会話だけ', () => {
+    const created = '2026-10-10T17:00:00.000Z';
+    expect(canCloseManually(created, null)).toBe(false);
+    expect(canCloseManually(created, '2026-10-10T16:59:59.000Z')).toBe(false);
+    expect(canCloseManually(created, created)).toBe(true);
+    expect(canCloseManually(created, '2026-10-10T18:00:00.000Z')).toBe(true);
+  });
+
+  it('手動で対応済みのメモは必須で、字数の上限がある', () => {
+    expect(checkManualCloseNote(' 10/12 20:00 に現地で。店長の了承済み ')).toEqual({ ok: true, value: '10/12 20:00 に現地で。店長の了承済み' });
+    expect(checkManualCloseNote('  ')).toMatchObject({ ok: false });
+    expect(checkManualCloseNote('あ'.repeat(STAFF_NOTE_MAX_CHARS + 1))).toMatchObject({ ok: false });
   });
 });
 

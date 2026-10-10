@@ -5,6 +5,7 @@ import type { HandoffNote } from '@/domain/types';
 import { createMemoryRepositories } from '@/lib/db';
 import { createFakeMessenger } from '@/lib/line/messenger';
 import {
+  closeViewingManually,
   confirmViewing,
   rejectViewing,
   resolveHandoff,
@@ -193,6 +194,35 @@ describe('rejectViewing と setViewingProgress', () => {
     await rejectViewing(deps, { viewingRequestId: viewing.id, reason: '満室' });
     expect(await setViewingProgress(deps, { viewingRequestId: viewing.id, status: 'pending' })).toMatchObject({ ok: false });
     expect(messenger.pushes).toHaveLength(1);
+  });
+});
+
+describe('closeViewingManually', () => {
+  it('手動返信の後なら、メモを残して記録だけ閉じる（利用者には何も送らない・確定日時は空）', async () => {
+    const { deps, repos, messenger, viewing, conversation, advance } = await setup();
+    advance(60 * 1000);
+    await sendStaffReply(deps, { conversationId: conversation.id, text: '20時でもよろしいでしょうか。' });
+    const pushedBefore = messenger.pushes.length;
+    const result = await closeViewingManually(deps, { viewingRequestId: viewing.id, note: '10/12 20:00 に現地で（店長了承）' });
+    expect(result).toEqual({ ok: true, message: '手動で対応済みにしました（利用者には何も送っていません）。' });
+    expect(await repos.viewingRequests.getById(viewing.id)).toMatchObject({
+      status: 'closed_manually',
+      confirmedTime: null,
+      staffNote: '10/12 20:00 に現地で（店長了承）',
+    });
+    expect(messenger.pushes).toHaveLength(pushedBefore);
+    // 終わりなので、その後は確定できない
+    expect(await confirmViewing(deps, { viewingRequestId: viewing.id, candidate: '2026-10-11', time: '10:00', note: '' })).toMatchObject({ ok: false });
+  });
+
+  it('手動返信の前・仮受付より前の返信だけ・メモなしは断る', async () => {
+    const { deps, repos, viewing, conversation } = await setup();
+    expect(await closeViewingManually(deps, { viewingRequestId: viewing.id, note: 'x' })).toMatchObject({ ok: false });
+    await repos.conversations.update(conversation.id, { lastStaffReplyAt: '2026-10-01T00:00:00.000Z' });
+    expect(await closeViewingManually(deps, { viewingRequestId: viewing.id, note: 'x' })).toMatchObject({ ok: false });
+    await sendStaffReply(deps, { conversationId: conversation.id, text: 'ご相談させてください。' });
+    expect(await closeViewingManually(deps, { viewingRequestId: viewing.id, note: ' ' })).toMatchObject({ ok: false });
+    expect((await repos.viewingRequests.getById(viewing.id))?.status).toBe('pending');
   });
 });
 

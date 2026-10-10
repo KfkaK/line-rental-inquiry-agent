@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { confirmViewingAction, rejectViewingAction, setViewingProgressAction } from '../actions';
+import { closeViewingManuallyAction, confirmViewingAction, rejectViewingAction, setViewingProgressAction } from '../actions';
 import { STAFF_NOTE_MAX_CHARS } from '@/domain/rules';
 import { canTransition } from '@/domain/staff';
 import type { ViewingStatus } from '@/domain/types';
@@ -32,13 +32,15 @@ interface Props {
   candidates: CandidateOption[];
   /** デモの会話（LINE には送らない） */
   isDemo: boolean;
+  /** この仮受付が届いた後に担当者が手動返信している（「手動で対応済み」を出せる。サーバーでも確かめる） */
+  canCloseManually: boolean;
 }
 
 /**
  * 内見の仮受付の操作（担当者だけに出す）。確定・却下は終わりの状態なので、成功するとサーバー側の画面が結果の表示に変わり、
  * フォームは消える。そのあとも「確定しました」の文が残るよう、成功の文はここ（親は同じ位置に置き続ける）で持つ。
  */
-export function ViewingActions({ viewingRequestId, status, candidates, isDemo }: Props) {
+export function ViewingActions({ viewingRequestId, status, candidates, isDemo, canCloseManually }: Props) {
   const [done, setDone] = useState<string | null>(null);
   const open = canTransition(status, 'confirmed');
   if (!open && done === null) return null;
@@ -58,6 +60,8 @@ export function ViewingActions({ viewingRequestId, status, candidates, isDemo }:
           <RejectForm viewingRequestId={viewingRequestId} isDemo={isDemo} onDone={setDone} />
           <hr className="border-line" />
           <ProgressForm viewingRequestId={viewingRequestId} status={status} onDone={setDone} />
+          <hr className="border-line" />
+          <ManualCloseForm viewingRequestId={viewingRequestId} available={canCloseManually} onDone={setDone} />
         </>
       )}
     </section>
@@ -195,6 +199,66 @@ function RejectForm({
       </p>
       <SubmitButton pending={pending} variant="danger">
         却下する
+      </SubmitButton>
+      <FormMessage state={state} errorsOnly />
+    </form>
+  );
+}
+
+/**
+ * 手動で対応済み（意思決定ログ15）。営業時間外の内見などを手動返信で取り決めたときに、記録だけを閉じる。
+ * 確定のボタンではない（利用者には何も送らない）。手動返信の後にだけ出す
+ */
+function ManualCloseForm({
+  viewingRequestId,
+  available,
+  onDone,
+}: {
+  viewingRequestId: string;
+  available: boolean;
+  onDone: (message: string) => void;
+}) {
+  const [note, setNote] = useState('');
+  const [state, formAction, pending] = useServerForm(closeViewingManuallyAction, onDone);
+
+  if (!available) {
+    return (
+      <div className="space-y-2">
+        <h3 className="text-sm font-semibold">手動で対応済みにする</h3>
+        <p className={hintClass}>
+          営業時間外の内見などを会話ログの手動返信で利用者と取り決めたら、ここで記録を閉じられます（手動返信の後に出ます）。
+        </p>
+      </div>
+    );
+  }
+  return (
+    <form action={formAction} className="space-y-4">
+      <h3 className="text-sm font-semibold">手動で対応済みにする</h3>
+      <input type="hidden" name="viewingRequestId" value={viewingRequestId} />
+      <p className={hintClass}>
+        手動返信で利用者と取り決めた内見の記録だけを閉じます。<strong className="font-semibold text-fg">利用者には何も送りません</strong>
+        （確定の連絡は手動返信で済ませてください）。
+      </p>
+      <div>
+        <label htmlFor="manual-note" className={labelClass}>
+          取り決めた内容（必須。日時と経緯）
+        </label>
+        <textarea
+          id="manual-note"
+          name="note"
+          rows={3}
+          required
+          maxLength={STAFF_NOTE_MAX_CHARS}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          className={inputClass}
+        />
+        <p className={`${hintClass} mt-1`}>
+          {note.length} / {STAFF_NOTE_MAX_CHARS} 字
+        </p>
+      </div>
+      <SubmitButton pending={pending} variant="secondary">
+        手動で対応済みにする
       </SubmitButton>
       <FormMessage state={state} errorsOnly />
     </form>
