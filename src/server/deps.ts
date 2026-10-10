@@ -1,6 +1,6 @@
 /**
  * 本番の部品の組み立て（Supabase・LINE・Claude）。テストは handleEvent に偽物の Deps を渡す。
- * 回答生成（LLM ＋ 根拠検証）と担当者へのメール通知はまだ無く、それぞれ DB の項目だけの定型文とログで代えている。
+ * 担当者へのメール通知はまだ無く、ログで代えている（Week 3 で Resend）。
  */
 import { detectForbiddenTopicByKeyword } from '@/domain/forbidden';
 import * as msg from '@/domain/messages';
@@ -8,6 +8,7 @@ import { relevantAccess } from '@/domain/search';
 import { createSupabaseRepositories } from '@/lib/db';
 import { optionalEnv } from '@/lib/env';
 import { createLineMessenger } from '@/lib/line/messenger';
+import { generateAnswer } from '@/lib/llm/answer';
 import { createAnthropicClient } from '@/lib/llm/client';
 import { extractIntentAndSlots } from '@/lib/llm/extract';
 import type { Answerer, Deps, Extractor, StaffNotifier } from './handleEvent';
@@ -42,11 +43,28 @@ export function createExtractor(client = createAnthropicClient()): Extractor {
 }
 
 /**
- * 回答生成の仮実装: 対象物件の詳細を DB の項目だけで返す（推測で補わないので根拠検証は常に ok）。
- * Week 2 で LLM の回答生成（tool use）＋後段の根拠検証に差し替える
+ * 回答生成（Sonnet 5.5・ツール1回）＋根拠検証（`src/domain/verify.ts`）。意思決定ログ6。
+ * 安全分類器の拒否でもサーバー側のフォールバックは使わない（拒否は引き継ぎに倒せば安全で、
+ * 料金表に無いモデルで応答されると費用の計上が例外になるため）
  */
+export function createAnswerer(client = createAnthropicClient()): Answerer {
+  return async ({ question, targets, now }) => {
+    const out = await generateAnswer({ question, targets, now, client });
+    return {
+      text: out.text,
+      handoff: out.handoff,
+      verification: out.verification,
+      latencyMs: out.latencyMs,
+      costUsd: out.costUsd,
+      toolCalls: out.record,
+    };
+  };
+}
+
+/** 回答生成の代わりに対象物件の詳細を DB の項目だけで返す（推測で補わないので根拠検証は常に ok）。評価で比べる基準の構成 */
 export const detailAnswerer: Answerer = async ({ targets }) => ({
   text: targets.map((t) => msg.propertyDetail(t.property, t.position)).join('\n\n'),
+  handoff: null,
   verification: 'ok',
   latencyMs: 0,
   costUsd: 0,
@@ -63,11 +81,12 @@ export const logNotifier: StaffNotifier = {
 
 export function createProductionDeps(): Deps {
   const limit = Number(optionalEnv('DAILY_COST_LIMIT_USD') ?? DEFAULT_DAILY_COST_LIMIT_USD);
+  const client = createAnthropicClient();
   return {
     repos: createSupabaseRepositories(),
     messenger: createLineMessenger(),
-    extract: createExtractor(),
-    answer: detailAnswerer,
+    extract: createExtractor(client),
+    answer: createAnswerer(client),
     notifier: logNotifier,
     clock: () => new Date(),
     dailyCostLimitUsd: Number.isFinite(limit) ? limit : DEFAULT_DAILY_COST_LIMIT_USD,

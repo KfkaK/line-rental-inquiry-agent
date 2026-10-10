@@ -8,7 +8,7 @@ import { fromJst, isOpenAt, nextContactDay, toJst } from '@/domain/businessHours
 import * as msg from '@/domain/messages';
 import { AI_RESUME_AFTER_MS, RATE_LIMIT_PER_MINUTE } from '@/domain/rules';
 import { decideTurn, type ButtonEvent, type ConversationSnapshot, type TurnEvent } from '@/domain/turn';
-import type { ExtractionResult, Property, Slots } from '@/domain/types';
+import type { ExtractionResult, ForbiddenTopic, Property, Slots } from '@/domain/types';
 import type { Conversation, Repositories, Verification } from '@/lib/db';
 import type { LineMessenger, LineMessage } from '@/lib/line/messenger';
 import { parseButtonEvent, renderMessages, type RenderBlock } from './render';
@@ -37,11 +37,15 @@ export interface AnswerInput {
   now: Date;
 }
 export interface AnswerOutput {
-  text: string;
+  /** 利用者に送る回答文（根拠検証を通ったものだけ）。null なら送らない */
+  text: string | null;
+  /** 担当者へ回すとき（レコードに無い情報・禁止トピック・差し替え）。定型の引き継ぎ文を足し、引き継ぎメモを残す */
+  handoff: { topic: ForbiddenTopic | null } | null;
   /** ok: そのまま / replaced: 根拠検証で不一致になり定型の引き継ぎ文に差し替えた */
   verification: Verification;
   latencyMs: number;
   costUsd: number;
+  /** messages.tool_calls に残す記録（不一致の回答を評価セットに足すため。DESIGN.md 4.3） */
   toolCalls?: unknown;
 }
 /** 提示物件への質問の回答生成＋根拠検証 */
@@ -185,19 +189,24 @@ export async function handleEvent(event: webhook.Event, deps: Deps): Promise<voi
       blocks.push(block);
       continue;
     }
+    const handOff = (topic: ForbiddenTopic | null): string => {
+      decision.handoffNote ??= { text: block.question, topic, propertyIds: block.targets.map((t) => t.property.id) };
+      return msg.handoff(topic, !isOpenAt(startedAt, calendar), nextContactDay(startedAt, calendar));
+    };
     try {
       const answer = await deps.answer({ question: block.question, targets: block.targets, now: startedAt });
-      blocks.push({ type: 'text', text: answer.text });
       answerCost += answer.costUsd;
       verification = answer.verification;
       toolCalls = answer.toolCalls ?? null;
+      // 答えられた部分を先に、担当者へ回す旨を後ろに（「駐輪場の記載はありません。」＋「このご質問は担当者が確認します。…」）
+      const parts = answer.text ? [answer.text] : [];
+      if (answer.handoff || parts.length === 0) parts.push(handOff(answer.handoff?.topic ?? null));
+      blocks.push({ type: 'text', text: parts.join('\n\n') });
     } catch (error) {
       // 回答生成に失敗したら推測で埋めず、担当者へ回す
       console.error('[handleEvent] 回答生成に失敗しました', error instanceof Error ? error.message : error);
-      const outside = !isOpenAt(startedAt, calendar);
-      blocks.push({ type: 'text', text: msg.handoff(null, outside, nextContactDay(startedAt, calendar)) });
+      blocks.push({ type: 'text', text: handOff(null) });
       verification = 'replaced';
-      decision.handoffNote ??= { text: block.question, topic: null, propertyIds: block.targets.map((t) => t.property.id) };
     }
   }
 
