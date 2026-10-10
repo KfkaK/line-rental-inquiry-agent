@@ -51,8 +51,13 @@ export async function login(_prev: FormState, formData: FormData): Promise<FormS
   if (!email || !password) return { ok: false, message: 'メールアドレスとパスワードを入れてください。' };
   const supabase = await createSessionClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
-  // どちらが違うかは教えない
-  if (error) return { ok: false, message: 'メールアドレスかパスワードが違います。' };
+  if (error) {
+    // 資格情報の誤りは、どちらが違うかを教えない。それ以外（キーの設定・Supabase の障害など）は別の文にし、
+    // 原因を追えるようログに種類だけ残す（メールアドレスは出さない）
+    if (error.code === 'invalid_credentials') return { ok: false, message: 'メールアドレスかパスワードが違います。' };
+    console.error('[admin] ログインに失敗しました', error.code ?? error.status ?? error.name);
+    return { ok: false, message: 'ログインできませんでした。時間をおいてもう一度お試しください（続くときは設定を確かめてください）。' };
+  }
   redirect('/admin');
 }
 
