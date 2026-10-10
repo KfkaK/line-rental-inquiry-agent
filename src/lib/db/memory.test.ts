@@ -256,6 +256,59 @@ describe('conversations', () => {
     expect(summary).not.toHaveProperty('lineUserId');
     expect(await repos.conversations.getSummary('nope')).toBeNull();
   });
+
+  it('引き継ぎメモ: 新しい会話は対応済み 0・デモでない。listWithOpenHandoff は未対応のメモがある会話だけを新しい順に', async () => {
+    const { repos, advance } = setup({
+      lineUsers: [
+        { lineUserId: 'U1', displayName: 'いち' },
+        { lineUserId: 'U2', displayName: 'に' },
+        { lineUserId: 'U3' },
+      ],
+    });
+    const note = (text: string): HandoffNote => ({ text, topic: null, propertyIds: [], at: '2026-10-07T00:00:00.000Z' });
+    const c1 = await repos.conversations.getOrCreate('U1');
+    const c2 = await repos.conversations.getOrCreate('U2');
+    await repos.conversations.getOrCreate('U3');
+    expect(c1).toMatchObject({ handoffResolvedCount: 0, isDemo: false });
+
+    await repos.conversations.update(c1.id, { handoffNotes: [note('a')] });
+    advance(MINUTE);
+    await repos.conversations.update(c2.id, { handoffNotes: [note('b'), note('c')] });
+    const open = await repos.conversations.listWithOpenHandoff();
+    expect(open.map((c) => c.id)).toEqual([c2.id, c1.id]);
+    expect(open[0]).toMatchObject({ displayName: 'に', handoffResolvedCount: 0 });
+    expect(open[0]).not.toHaveProperty('lineUserId');
+
+    // 見た件数まで対応済みにする。全部なら一覧から外れ、一部なら残る
+    await repos.conversations.update(c1.id, { handoffResolvedCount: 1 });
+    await repos.conversations.update(c2.id, { handoffResolvedCount: 1 });
+    expect((await repos.conversations.listWithOpenHandoff()).map((c) => c.id)).toEqual([c2.id]);
+    await expectDbError(repos.conversations.update(c1.id, { handoffResolvedCount: -1 }), '23514');
+  });
+
+  it('初期データの会話は handoffResolvedCount・isDemo を省略でき、渡せばそのまま', async () => {
+    const { repos } = setup();
+    const base = {
+      lineUserId: 'U-demo',
+      state: 'hearing' as const,
+      slots: { tags: [] },
+      shownPropertyIds: [],
+      shownOffset: 0,
+      lastSearchTotal: null,
+      priorityAskedCount: 0,
+      aiPaused: false,
+      pausedAt: null,
+      lastStaffReplyAt: null,
+      booking: null,
+      handoffNotes: [],
+      createdAt: '2026-10-07T00:00:00.000Z',
+      updatedAt: '2026-10-07T00:00:00.000Z',
+    };
+    const seeded = setup({ conversations: [{ ...base, id: 'c-a' }, { ...base, id: 'c-b', lineUserId: 'U-b', isDemo: true, handoffResolvedCount: 2 }] });
+    expect(await seeded.repos.conversations.getById('c-a')).toMatchObject({ isDemo: false, handoffResolvedCount: 0 });
+    expect(await seeded.repos.conversations.getById('c-b')).toMatchObject({ isDemo: true, handoffResolvedCount: 2 });
+    expect(await repos.conversations.listWithOpenHandoff()).toEqual([]);
+  });
 });
 
 // ---------- messages ----------
@@ -447,6 +500,23 @@ describe('viewingRequests', () => {
     await expectDbError(repos.viewingRequests.update('nope', { status: 'rejected' }), 'NOT_FOUND');
     expect(await repos.viewingRequests.getById('nope')).toBeNull();
     expect(await repos.viewingRequests.getById(request.id)).toMatchObject({ id: request.id, displayName: 'たろう', propertyName: 'レジデンス渋谷' });
+  });
+
+  it('listByConversation はその会話の仮受付を届いた順に。一覧の行は会話の対応済みの数とデモかを持つ', async () => {
+    const { repos, advance, conversation } = await withConversation();
+    await repos.lineUsers.upsert({ lineUserId: 'U2' });
+    const other = await repos.conversations.getOrCreate('U2');
+    const a = await repos.viewingRequests.create({ conversationId: conversation.id, propertyId: 'P1', candidateTimes: [], receivedOutsideHours: false });
+    advance(MINUTE);
+    await repos.viewingRequests.create({ conversationId: other.id, propertyId: 'P1', candidateTimes: [], receivedOutsideHours: false });
+    advance(MINUTE);
+    const b = await repos.viewingRequests.create({ conversationId: conversation.id, propertyId: 'P2', candidateTimes: [], receivedOutsideHours: true });
+    await repos.conversations.update(conversation.id, { handoffResolvedCount: 3 });
+
+    const list = await repos.viewingRequests.listByConversation(conversation.id);
+    expect(list.map((r) => r.id)).toEqual([a.id, b.id]);
+    expect(list[0]).toMatchObject({ handoffResolvedCount: 3, isDemo: false, displayName: 'たろう' });
+    expect(await repos.viewingRequests.listByConversation('nope')).toEqual([]);
   });
 });
 

@@ -18,6 +18,7 @@ import type {
   Property,
   SlotOp,
   Slots,
+  ViewingStatus,
 } from '@/domain/types';
 
 // ---------- エラー ----------
@@ -79,8 +80,15 @@ export interface Conversation {
   lastStaffReplyAt: string | null;
   /** 内見の聞き取り途中の状態。聞き取り中でなければ null */
   booking: BookingDraft | null;
-  /** 担当者へ回した質問のメモ（古い順） */
+  /** 担当者へ回した質問のメモ（古い順・追記だけ） */
   handoffNotes: HandoffNote[];
+  /**
+   * 担当者が対応済みにしたメモの数。`handoffNotes` の先頭からこの数までが対応済み、残りが未対応
+   * （`openHandoffNotes()`）。メモは追記だけなので、担当者が見た件数を書けば、見た後に届いたメモは未対応のまま残る
+   */
+  handoffResolvedCount: number;
+  /** 閲覧用アカウントに見せるデモ会話（種まきしたもの。LINE には送らない） */
+  isDemo: boolean;
   createdAt: string;
   /** 会話の最終動作（状態の更新・メッセージの追加）の時刻 */
   updatedAt: string;
@@ -101,6 +109,7 @@ export type ConversationPatch = Partial<
     | 'lastStaffReplyAt'
     | 'booking'
     | 'handoffNotes'
+    | 'handoffResolvedCount'
   >
 >;
 
@@ -161,9 +170,8 @@ export interface NewMessage {
 
 // ---------- 内見の仮受付 ----------
 
-/** 管理画面の 未対応 / 対応中 / 確定 / 却下 */
-export const VIEWING_STATUSES = ['pending', 'in_progress', 'confirmed', 'rejected'] as const;
-export type ViewingStatus = (typeof VIEWING_STATUSES)[number];
+// 状態の遷移は業務ルールなのでドメインに置く（src/domain/staff.ts）
+export { VIEWING_STATUSES, type ViewingStatus } from '@/domain/types';
 
 export interface ViewingRequest {
   id: string;
@@ -189,6 +197,10 @@ export type ViewingRequestListItem = ViewingRequest & {
   displayName: string | null;
   propertyName: string | null;
   handoffNotes: HandoffNote[];
+  /** 会話の `handoffResolvedCount`（未対応のメモだけを出すため） */
+  handoffResolvedCount: number;
+  /** デモ会話の仮受付（確定・却下しても LINE には送らない） */
+  isDemo: boolean;
 };
 
 export interface NewViewingRequest {
@@ -237,6 +249,8 @@ export interface ConversationRepository {
   listRecent(options?: ConversationListOptions): Promise<ConversationSummary[]>;
   /** 管理画面用。1 件 */
   getSummary(id: string): Promise<ConversationSummary | null>;
+  /** 朝の引き継ぎ一覧用。未対応の引き継ぎメモがある会話を全件、最終動作の新しい順に */
+  listWithOpenHandoff(): Promise<ConversationSummary[]>;
 }
 
 export interface MessageRepository {
@@ -261,6 +275,8 @@ export interface ViewingRequestRepository {
   listSince(since: Date): Promise<ViewingRequestListItem[]>;
   /** 届いた順（古い順） */
   listByStatus(status: ViewingStatus): Promise<ViewingRequestListItem[]>;
+  /** 会話ログの画面用。その会話の仮受付を届いた順（古い順）に */
+  listByConversation(conversationId: string): Promise<ViewingRequestListItem[]>;
   /** 空の patch は何もしない。対象が無ければ DbError code 'NOT_FOUND' */
   update(id: string, patch: ViewingRequestPatch): Promise<ViewingRequest>;
 }

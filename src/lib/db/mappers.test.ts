@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { MESSAGE_RETENTION_DAYS } from '@/domain/rules';
@@ -86,6 +86,9 @@ const conversationRow: ConversationDbRow = {
   last_staff_reply_at: '2026-10-07T10:00:00.5+00:00',
   booking: { propertyId: 'P0001', candidateTimes: ['2026-10-10T14:00'] },
   handoff_notes: [{ text: '今空いてますか？', topic: 'vacancy', propertyIds: ['P0001'], at: '2026-10-07T09:30:00.000Z' }],
+  handoff_resolved_count: 0,
+  handoff_open_count: 1,
+  is_demo: false,
   created_at: '2026-10-07T09:00:00+00:00',
   updated_at: '2026-10-07T10:00:00+00:00',
 };
@@ -193,6 +196,15 @@ describe('conversations', () => {
       { text: '今空いてますか？', topic: 'vacancy', propertyIds: ['P0001'], at: '2026-10-07T09:30:00.000Z' },
     ]);
     expect(conversation.slots.rentMax).toEqual({ value: 100000, priority: 'must' });
+    expect(conversation.handoffResolvedCount).toBe(0);
+    expect(conversation.isDemo).toBe(false);
+    // 生成列（handoff_open_count）はドメインに持ち込まない
+    expect(conversation).not.toHaveProperty('handoff_open_count');
+    expect(conversation).not.toHaveProperty('handoffOpenCount');
+    expect(rowToConversation({ ...conversationRow, handoff_resolved_count: 1, is_demo: true })).toMatchObject({
+      handoffResolvedCount: 1,
+      isDemo: true,
+    });
   });
 
   it('slots が null・tags が無くても tags: [] を保証し、booking / handoff_notes の欠けも既定値にする', () => {
@@ -244,6 +256,7 @@ describe('conversations', () => {
         priorityAskedCount: 1,
         lastStaffReplyAt: '2026-10-07T10:00:00.000Z',
         handoffNotes: [],
+        handoffResolvedCount: 2,
       }),
     ).toEqual({
       slots: { tags: [] },
@@ -252,6 +265,7 @@ describe('conversations', () => {
       priority_asked_count: 1,
       last_staff_reply_at: '2026-10-07T10:00:00.000Z',
       handoff_notes: [],
+      handoff_resolved_count: 2,
     });
   });
 });
@@ -318,10 +332,14 @@ describe('viewing_requests', () => {
       properties: { name: 'サンプルレジデンス渋谷' },
       conversations: {
         handoff_notes: [{ text: '治安は？', topic: 'safety', propertyIds: [], at: '2026-10-07T09:30:00.000Z' }],
+        handoff_resolved_count: 1,
+        is_demo: true,
         line_users: { display_name: 'たろう' },
       },
     });
     expect(item.propertyName).toBe('サンプルレジデンス渋谷');
+    expect(item.handoffResolvedCount).toBe(1);
+    expect(item.isDemo).toBe(true);
     expect(item.displayName).toBe('たろう');
     expect(item.handoffNotes).toEqual([{ text: '治安は？', topic: 'safety', propertyIds: [], at: '2026-10-07T09:30:00.000Z' }]);
     expect(item).not.toHaveProperty('lineUserId');
@@ -408,12 +426,16 @@ describe('営業時間と休業日', () => {
   });
 });
 
-// ---------- init.sql との食い違い検査 ----------
+// ---------- マイグレーション（supabase/migrations/*.sql をファイル名順に連結）との食い違い検査 ----------
 
-const sql = readFileSync(
-  fileURLToPath(new URL('../../../supabase/migrations/20261007000000_init.sql', import.meta.url)),
-  'utf8',
-);
+const MIGRATIONS_DIR = fileURLToPath(new URL('../../../supabase/migrations/', import.meta.url));
+const migrations = readdirSync(MIGRATIONS_DIR)
+  .filter((name) => name.endsWith('.sql'))
+  .sort()
+  .map((name) => ({ name, sql: readFileSync(MIGRATIONS_DIR + name, 'utf8') }));
+const sql = migrations.map((m) => m.sql).join('\n');
+const initSql = migrations.find((m) => m.name === '20261007000000_init.sql')?.sql ?? '';
+const adminSql = migrations.find((m) => m.name === '20261011000000_admin_roles.sql')?.sql ?? '';
 
 function tableBlock(table: string): string {
   const match = new RegExp(`create table public\\.${table} \\(\\r?\\n([\\s\\S]*?)\\r?\\n\\);`).exec(sql);
@@ -421,12 +443,15 @@ function tableBlock(table: string): string {
   return match[1];
 }
 
+/** create table の列と、後のマイグレーションの `alter table public.X add column Y`（1 行 1 列）の列 */
 function columns(table: string): string[] {
-  return tableBlock(table)
+  const created = tableBlock(table)
     .split(/\r?\n/)
     .map((line) => line.replace(/--.*$/, '').trim())
     .filter((line) => line !== '' && !/^(constraint|primary|unique|check|foreign)\b/i.test(line))
     .map((line) => line.split(/\s+/)[0]);
+  const added = [...sql.matchAll(new RegExp(`^alter table public\\.${table} add column (\\w+)`, 'gm'))].map((m) => m[1]);
+  return [...created, ...added];
 }
 
 /** `col text ... check (col in ('a', 'b'))` の値の一覧 */
@@ -436,7 +461,7 @@ function checkValues(table: string, column: string): string[] {
   return [...match[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
 }
 
-describe('supabase/migrations/20261007000000_init.sql との突き合わせ', () => {
+describe('supabase/migrations との突き合わせ', () => {
   const tables = ['properties', 'line_users', 'conversations', 'messages', 'viewing_requests', 'business_hours', 'holidays', 'webhook_events'];
 
   it('すべてのテーブルで RLS が有効', () => {
@@ -510,6 +535,32 @@ describe('supabase/migrations/20261007000000_init.sql との突き合わせ', ()
     expect(columns('conversations')).toContain('handoff_notes');
     expect(columns('properties')).toContain('name');
     expect(columns('line_users')).toContain('display_name');
+  });
+
+  it('担当者向けのポリシーはすべて役割（app_metadata.role = staff）で絞り直している', () => {
+    const staffPolicies = [...initSql.matchAll(/create policy (staff_\w+) on public\.(\w+)/g)].map((m) => [m[1], m[2]]);
+    expect(staffPolicies.length).toBeGreaterThan(0);
+    for (const [name, table] of staffPolicies) {
+      const altered = new RegExp(`alter policy ${name} on public\\.${table} [^;]*app_role\\(\\)\\) = 'staff'`);
+      expect(adminSql, `${name} on ${table}`).toMatch(altered);
+    }
+  });
+
+  it('閲覧用（viewer）のポリシーは select だけで、会話まわりはデモ会話に限る', () => {
+    const viewer = [...adminSql.matchAll(/create policy viewer_\w+ on public\.(\w+) for (\w+)[^;]*;/g)];
+    expect(viewer.map((m) => m[1]).sort()).toEqual(
+      ['business_hours', 'conversations', 'holidays', 'line_users', 'messages', 'properties', 'viewing_requests'].sort(),
+    );
+    for (const [policy, table, command] of viewer) {
+      expect(command, table).toBe('select');
+      expect(policy).toContain("app_role()) = 'viewer'");
+      if (['conversations', 'line_users', 'messages', 'viewing_requests'].includes(table)) expect(policy, table).toContain('is_demo');
+    }
+    // init より後に、役割を見ないポリシーを作らない（役割の付け忘れのユーザーに権限が付かないように）
+    for (const { name, sql: body } of migrations) {
+      if (name === '20261007000000_init.sql') continue;
+      for (const [policy] of body.matchAll(/create policy [^;]*;/g)) expect(policy, name).toMatch(/app_role\(\)/);
+    }
   });
 
   it('check の値が TypeScript の語彙と同じ', () => {

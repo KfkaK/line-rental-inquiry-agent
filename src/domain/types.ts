@@ -225,6 +225,10 @@ export interface HandoffNote {
   at: string;
 }
 
+/** 内見の仮受付の状態。管理画面の 未対応 / 対応中 / 確定 / 却下。遷移は src/domain/staff.ts */
+export const VIEWING_STATUSES = ['pending', 'in_progress', 'confirmed', 'rejected'] as const;
+export type ViewingStatus = (typeof VIEWING_STATUSES)[number];
+
 /** 意図分類＋条件抽出（毎ターン・安いモデル）の出力 */
 export interface ExtractionResult {
   intent: Intent;

@@ -73,11 +73,15 @@ export interface ConversationDbRow {
   last_staff_reply_at: string | null;
   booking: BookingDraft | null;
   handoff_notes: HandoffNote[] | null;
+  handoff_resolved_count: number;
+  /** 生成列（handoff_notes の数 − handoff_resolved_count）。読むだけで書かない */
+  handoff_open_count: number;
+  is_demo: boolean;
   created_at: string;
   updated_at: string;
 }
 
-export type ConversationSummaryDbRow = Omit<ConversationDbRow, 'line_user_id'> & {
+export type ConversationSummaryDbRow = Omit<ConversationDbRow, 'line_user_id' | 'handoff_open_count'> & {
   line_users?: Embedded<{ display_name: string | null }>;
 };
 
@@ -112,6 +116,8 @@ export type ViewingRequestListDbRow = ViewingRequestDbRow & {
   properties?: Embedded<{ name: string }>;
   conversations?: Embedded<{
     handoff_notes: HandoffNote[] | null;
+    handoff_resolved_count?: number | null;
+    is_demo?: boolean | null;
     line_users?: Embedded<{ display_name: string | null }>;
   }>;
 };
@@ -143,6 +149,8 @@ export const CONVERSATION_SUMMARY_COLUMNS = [
   'last_staff_reply_at',
   'booking',
   'handoff_notes',
+  'handoff_resolved_count',
+  'is_demo',
   'created_at',
   'updated_at',
 ] as const;
@@ -150,7 +158,8 @@ export const CONVERSATION_SUMMARY_COLUMNS = [
 export const CONVERSATION_SUMMARY_SELECT = `${CONVERSATION_SUMMARY_COLUMNS.join(', ')}, line_users(display_name)`;
 
 /** 内見の一覧: 物件名・表示名・会話の引き継ぎメモを埋め込みで引く（`line_user_id` は選ばない） */
-export const VIEWING_REQUEST_LIST_SELECT = '*, properties(name), conversations(handoff_notes, line_users(display_name))';
+export const VIEWING_REQUEST_LIST_SELECT =
+  '*, properties(name), conversations(handoff_notes, handoff_resolved_count, is_demo, line_users(display_name))';
 
 // ---------- 小さな変換 ----------
 
@@ -271,11 +280,14 @@ function normalizeHandoffNotes(raw: HandoffNote[] | null | undefined): HandoffNo
 }
 
 export function rowToConversation(row: ConversationDbRow): Conversation {
-  const { line_user_id, ...rest } = row;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- 生成列は捨てる（handoffResolvedCount と handoffNotes から求まる）
+  const { line_user_id, handoff_open_count, ...rest } = row;
   return { lineUserId: line_user_id, ...rowToConversationBody(rest) };
 }
 
-function rowToConversationBody(row: Omit<ConversationDbRow, 'line_user_id'>): Omit<Conversation, 'lineUserId'> {
+function rowToConversationBody(
+  row: Omit<ConversationDbRow, 'line_user_id' | 'handoff_open_count'>,
+): Omit<Conversation, 'lineUserId'> {
   return {
     id: row.id,
     state: row.state,
@@ -289,6 +301,8 @@ function rowToConversationBody(row: Omit<ConversationDbRow, 'line_user_id'>): Om
     lastStaffReplyAt: toIsoOrNull(row.last_staff_reply_at),
     booking: normalizeBooking(row.booking),
     handoffNotes: normalizeHandoffNotes(row.handoff_notes),
+    handoffResolvedCount: row.handoff_resolved_count ?? 0,
+    isDemo: row.is_demo ?? false,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   };
@@ -309,8 +323,12 @@ export function toConversationSummary(conversation: Conversation, displayName: s
 }
 
 /** undefined の項目は含めない（変えない）。null は含める（null に更新する） */
-export function conversationPatchToRow(patch: ConversationPatch): Partial<Omit<ConversationDbRow, 'id' | 'line_user_id' | 'created_at' | 'updated_at'>> {
-  const row: Partial<Omit<ConversationDbRow, 'id' | 'line_user_id' | 'created_at' | 'updated_at'>> = {};
+type ConversationWritableRow = Partial<
+  Omit<ConversationDbRow, 'id' | 'line_user_id' | 'handoff_open_count' | 'is_demo' | 'created_at' | 'updated_at'>
+>;
+
+export function conversationPatchToRow(patch: ConversationPatch): ConversationWritableRow {
+  const row: ConversationWritableRow = {};
   if (patch.state !== undefined) row.state = patch.state;
   if (patch.slots !== undefined) row.slots = patch.slots;
   if (patch.shownPropertyIds !== undefined) row.shown_property_ids = patch.shownPropertyIds;
@@ -322,6 +340,7 @@ export function conversationPatchToRow(patch: ConversationPatch): Partial<Omit<C
   if (patch.lastStaffReplyAt !== undefined) row.last_staff_reply_at = patch.lastStaffReplyAt;
   if (patch.booking !== undefined) row.booking = patch.booking;
   if (patch.handoffNotes !== undefined) row.handoff_notes = patch.handoffNotes;
+  if (patch.handoffResolvedCount !== undefined) row.handoff_resolved_count = patch.handoffResolvedCount;
   return row;
 }
 
@@ -385,6 +404,8 @@ export function rowToViewingRequestListItem(row: ViewingRequestListDbRow): Viewi
     displayName: first(conversation?.line_users)?.display_name ?? null,
     propertyName: first(properties)?.name ?? null,
     handoffNotes: normalizeHandoffNotes(conversation?.handoff_notes),
+    handoffResolvedCount: conversation?.handoff_resolved_count ?? 0,
+    isDemo: conversation?.is_demo ?? false,
   };
 }
 

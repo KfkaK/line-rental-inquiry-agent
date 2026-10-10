@@ -228,6 +228,21 @@ export function createSupabaseRepositories(client: SupabaseClient = createServic
         if (error) throw fail('conversations.getSummary', error);
         return data ? rowToConversationSummary(data as unknown as ConversationSummaryDbRow) : null;
       },
+
+      async listWithOpenHandoff() {
+        const rows = await fetchAll<ConversationSummaryDbRow>('conversations.listWithOpenHandoff', (from, to) =>
+          client
+            .from('conversations')
+            .select(CONVERSATION_SUMMARY_SELECT)
+            .gt('handoff_open_count', 0)
+            .order('updated_at', { ascending: false })
+            .order('id', { ascending: false })
+            .range(from, to)
+            // select 句を定数の連結で組んでいるので、型の推論が効かない
+            .overrideTypes<ConversationSummaryDbRow[], { merge: false }>(),
+        );
+        return rows.map(rowToConversationSummary);
+      },
     },
 
     messages: {
@@ -319,6 +334,19 @@ export function createSupabaseRepositories(client: SupabaseClient = createServic
             .from('viewing_requests')
             .select(VIEWING_REQUEST_LIST_SELECT)
             .eq('status', status)
+            .order('created_at', { ascending: true })
+            .order('id', { ascending: true })
+            .range(from, to),
+        );
+        return rows.map(rowToViewingRequestListItem);
+      },
+
+      async listByConversation(conversationId) {
+        const rows = await fetchAll<ViewingRequestListDbRow>('viewingRequests.listByConversation', (from, to) =>
+          client
+            .from('viewing_requests')
+            .select(VIEWING_REQUEST_LIST_SELECT)
+            .eq('conversation_id', conversationId)
             .order('created_at', { ascending: true })
             .order('id', { ascending: true })
             .range(from, to),
