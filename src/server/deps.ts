@@ -1,13 +1,13 @@
 /**
  * 本番の部品の組み立て（Supabase・LINE・Claude）。テストは handleEvent に偽物の Deps を渡す。
- * 回答生成（LLM ＋ 根拠検証）と担当者へのメール通知はまだ無く、それぞれ DB の項目だけの定型文とログで代えている。
+ * 担当者へのメール通知はまだ無く、ログで代えている（Week 3 で Resend）。
  */
 import { detectForbiddenTopicByKeyword } from '@/domain/forbidden';
-import * as msg from '@/domain/messages';
 import { relevantAccess } from '@/domain/search';
 import { createSupabaseRepositories } from '@/lib/db';
 import { optionalEnv } from '@/lib/env';
 import { createLineMessenger } from '@/lib/line/messenger';
+import { generateAnswer } from '@/lib/llm/answer';
 import { createAnthropicClient } from '@/lib/llm/client';
 import { extractIntentAndSlots } from '@/lib/llm/extract';
 import type { Answerer, Deps, Extractor, StaffNotifier } from './handleEvent';
@@ -42,15 +42,29 @@ export function createExtractor(client = createAnthropicClient()): Extractor {
 }
 
 /**
- * 回答生成の仮実装: 対象物件の詳細を DB の項目だけで返す（推測で補わないので根拠検証は常に ok）。
- * Week 2 で LLM の回答生成（tool use）＋後段の根拠検証に差し替える
+ * 回答生成の1回の待ち時間の上限。条件抽出（30 秒・再試行 1 回）のあとに続くので、短くして再試行もしない。
+ * Webhook の maxDuration（60 秒）に収め、時間切れでも引き継ぎ文で返せるようにする（実測 1.8〜5.8 秒）
  */
-export const detailAnswerer: Answerer = async ({ targets }) => ({
-  text: targets.map((t) => msg.propertyDetail(t.property, t.position)).join('\n\n'),
-  verification: 'ok',
-  latencyMs: 0,
-  costUsd: 0,
-});
+const ANSWER_TIMEOUT_MS = 15_000;
+
+/**
+ * 回答生成（Sonnet 5.5・ツール1回）＋根拠検証（`src/domain/verify.ts`）。意思決定ログ6。
+ * 安全分類器の拒否でもサーバー側のフォールバックは使わない（拒否は引き継ぎに倒せば安全で、
+ * 料金表に無いモデルで応答されると費用の計上が例外になるため）
+ */
+export function createAnswerer(client = createAnthropicClient({ timeoutMs: ANSWER_TIMEOUT_MS, maxRetries: 0 })): Answerer {
+  return async ({ question, targets, now }) => {
+    const out = await generateAnswer({ question, targets, now, client });
+    return {
+      text: out.text,
+      handoff: out.handoff,
+      verification: out.verification,
+      latencyMs: out.latencyMs,
+      costUsd: out.costUsd,
+      toolCalls: out.record,
+    };
+  };
+}
 
 /** 担当者通知の仮実装（Week 3 で Resend のメールに差し替える）。個人情報はログに出さない */
 export const logNotifier: StaffNotifier = {
@@ -67,7 +81,7 @@ export function createProductionDeps(): Deps {
     repos: createSupabaseRepositories(),
     messenger: createLineMessenger(),
     extract: createExtractor(),
-    answer: detailAnswerer,
+    answer: createAnswerer(),
     notifier: logNotifier,
     clock: () => new Date(),
     dailyCostLimitUsd: Number.isFinite(limit) ? limit : DEFAULT_DAILY_COST_LIMIT_USD,

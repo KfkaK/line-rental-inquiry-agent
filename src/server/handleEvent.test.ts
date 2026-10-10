@@ -6,7 +6,7 @@ import type { ExtractionResult, Property } from '@/domain/types';
 import { createMemoryRepositories } from '@/lib/db';
 import { createFakeMessenger } from '@/lib/line/messenger';
 import { buildPostbackData } from '@/lib/line/postback';
-import { handleEvent, type Deps, type ExtractInput, type StaffNotifier } from './handleEvent';
+import { handleEvent, type AnswerOutput, type Deps, type ExtractInput, type StaffNotifier } from './handleEvent';
 
 const USER = 'U-test-user';
 /** 火曜 23:30 JST（営業時間外） */
@@ -51,7 +51,9 @@ function setup(options: { now?: Date; properties?: Property[]; extractions?: Ext
   const queue = [...(options.extractions ?? [])];
   const extractCalls: ExtractInput[] = [];
   const notifier: StaffNotifier = { viewingRequested: vi.fn(async () => {}) };
-  const answer = vi.fn(async () => ({ text: '駐輪場はあります。', verification: 'ok' as const, latencyMs: 5, costUsd: 0.002 }));
+  const answer = vi.fn(
+    async (): Promise<AnswerOutput> => ({ text: '駐輪場はあります。', handoff: null, verification: 'ok', latencyMs: 5, costUsd: 0.002 }),
+  );
   const deps: Deps = {
     repos,
     messenger,
@@ -238,6 +240,50 @@ describe('handleEvent', () => {
     await handleEvent(textEvent('渋谷で9万まで'), t.deps);
     expect(textsOf(t.lastReply())[0]).toContain('混み合っています');
     expect((await t.conversation()).state).toBe('hearing');
+  });
+
+  it('回答の一部がレコードに無い: 答えられた部分に続けて引き継ぎ文を返し、メモを残す', async () => {
+    const t = setup({ now: NIGHT, extractions: [SEARCH, ex({ intent: 'propertyQuestion', targetPositions: [2] })] });
+    t.answer.mockResolvedValueOnce({
+      text: '物件情報に駐車場の記載はありません。',
+      handoff: { topic: null },
+      verification: 'ok',
+      latencyMs: 5,
+      costUsd: 0.002,
+      toolCalls: { status: 'needsStaff' },
+    });
+    await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+    await handleEvent(textEvent('2番目は駐車場ある？'), t.deps);
+    const [reply] = textsOf(t.lastReply());
+    expect(reply.startsWith('物件情報に駐車場の記載はありません。\n\n')).toBe(true);
+    expect(reply).toContain('担当者が確認します');
+    expect(reply).toContain('営業時間外');
+    const conv = await t.conversation();
+    expect(conv.handoffNotes).toEqual([{ text: '2番目は駐車場ある？', topic: null, propertyIds: ['P2'], at: NIGHT.toISOString() }]);
+    const log = await t.repos.messages.listByConversation(conv.id);
+    expect(log.at(-1)).toMatchObject({ verification: 'ok', toolCalls: { status: 'needsStaff' } });
+  });
+
+  it('回答生成が禁止トピックと判断したら、回答文なしで話題つきの引き継ぎ文を返す', async () => {
+    const t = setup({ extractions: [SEARCH, ex({ intent: 'propertyQuestion', targetPositions: [1] })] });
+    t.answer.mockResolvedValueOnce({ text: null, handoff: { topic: 'vacancy' }, verification: 'ok', latencyMs: 5, costUsd: 0.002 });
+    await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+    await handleEvent(textEvent('1番目はまだ借りられる？'), t.deps);
+    expect(textsOf(t.lastReply())).toEqual([expect.stringMatching(/^空室状況については担当者が確認します。/)]);
+    const conv = await t.conversation();
+    expect(conv.handoffNotes.map((n) => [n.topic, n.propertyIds])).toEqual([['vacancy', ['P1']]]);
+  });
+
+  it('根拠検証で差し替えた回答は送らず、引き継ぎ文とメモにして replaced を記録する', async () => {
+    const t = setup({ extractions: [SEARCH, ex({ intent: 'propertyQuestion', targetPositions: [1] })] });
+    t.answer.mockResolvedValueOnce({ text: null, handoff: { topic: null }, verification: 'replaced', latencyMs: 5, costUsd: 0.002 });
+    await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+    await handleEvent(textEvent('1番目の家賃は？'), t.deps);
+    expect(textsOf(t.lastReply())).toEqual([expect.stringMatching(/^このご質問は担当者が確認します。/)]);
+    const conv = await t.conversation();
+    expect(conv.handoffNotes.map((n) => n.text)).toEqual(['1番目の家賃は？']);
+    const log = await t.repos.messages.listByConversation(conv.id);
+    expect(log.at(-1)).toMatchObject({ verification: 'replaced', costUsd: 0.001 + 0.002 });
   });
 
   it('回答生成が失敗したら推測で埋めず担当者へ回す', async () => {
