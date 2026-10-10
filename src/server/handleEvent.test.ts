@@ -164,6 +164,27 @@ describe('handleEvent', () => {
     expect(textsOf(t.lastReply())[0]).toContain('混み合っています');
   });
 
+  it('レート制限はボタン・友だち追加・断った発話を数えず、1分たてば戻る（実機で見つかった不具合）', async () => {
+    const t = setup({ extractions: [SEARCH] });
+    await handleEvent(followEvent(), t.deps);
+    await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+    for (let i = 0; i < 4; i++) await handleEvent(postbackEvent(buildPostbackData({ action: 'more' })), t.deps);
+    for (let i = 0; i < 4; i++) await handleEvent(textEvent(`質問${i}`), t.deps);
+    // 友だち追加1・ボタン4・自由文5 のうち、LLM を通したのは自由文の5回だけ
+    expect(t.extractCalls).toHaveLength(5);
+    expect(textsOf(t.lastReply()).join('')).not.toContain('混み合っています');
+
+    await handleEvent(textEvent('6回目'), t.deps);
+    await handleEvent(textEvent('7回目'), t.deps);
+    expect(t.extractCalls).toHaveLength(5);
+    expect(textsOf(t.lastReply())[0]).toContain('混み合っています');
+
+    // 断った2回は数えないので、最初の5回から1分たてば通る
+    t.advance(60_001);
+    await handleEvent(textEvent('8回目'), t.deps);
+    expect(t.extractCalls).toHaveLength(6);
+  });
+
   it('1日の費用上限を超えたら LLM を呼ばない', async () => {
     const t = setup({ dailyCostLimitUsd: 0.0015 });
     await handleEvent(textEvent('1回目'), t.deps);

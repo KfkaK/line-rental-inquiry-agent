@@ -132,9 +132,10 @@ export async function handleEvent(event: webhook.Event, deps: Deps): Promise<voi
   }
 
   // ---- レート制限と1日の費用上限（LLM を呼ぶ自由文だけ。DESIGN.md 4.4） ----
+  // 数えるのは直近1分に条件抽出を通したターン。ボタン・友だち追加は LLM を呼ばないので数えない（意思決定ログ10）
   const isText = event.type === 'message';
   if (isText) {
-    const recent = await repos.messages.countUserMessagesSince(userId, new Date(startedAt.getTime() - MINUTE_MS));
+    const recent = await repos.messages.countExtractedTurnsSince(userId, new Date(startedAt.getTime() - MINUTE_MS));
     const spent = await repos.messages.sumCostSince(fromJst(toJst(startedAt).date, '00:00'));
     await repos.messages.insert({ conversationId: conv.id, role: 'user', text: userText });
     if (recent >= RATE_LIMIT_PER_MINUTE || spent >= deps.dailyCostLimitUsd) {

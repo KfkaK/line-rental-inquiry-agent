@@ -244,8 +244,11 @@ export interface MessageRepository {
   insert(message: NewMessage): Promise<Message>;
   /** 古い順 */
   listByConversation(conversationId: string): Promise<Message[]>;
-  /** レート制限用。その LINE ユーザーの role='user' のメッセージのうち、`since` 以降（含む）の件数 */
-  countUserMessagesSince(lineUserId: string, since: Date): Promise<number>;
+  /**
+   * レート制限用。その LINE ユーザーの会話で、条件抽出（LLM）を通したターン（role='ai' かつ intent あり）のうち
+   * `since` 以降（含む）の件数。ボタン・友だち追加・制限で断った発話は LLM を呼ばないので数えない（意思決定ログ10）
+   */
+  countExtractedTurnsSince(lineUserId: string, since: Date): Promise<number>;
   /** 1 日の費用上限用。`since` 以降（含む）の全メッセージの `costUsd` の合計 */
   sumCostSince(since: Date): Promise<number>;
 }
