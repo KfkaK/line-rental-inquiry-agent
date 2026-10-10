@@ -3,7 +3,7 @@
  * 内見の仮受付の状態の遷移・確定日時の決め方・引き継ぎメモの対応済み・営業時間の設定の検証を持つ。
  * 現在時刻は引数で受け取る（不変条件 5）。
  */
-import { nextContactDay, previousClose, viewingCandidateDays } from './businessHours';
+import { formatJstDay, hoursOn, nextContactDay, previousClose, viewingCandidateDays } from './businessHours';
 import { STAFF_NOTE_MAX_CHARS, STAFF_REPLY_MAX_CHARS, VIEWING_DAYS_TO_OFFER } from './rules';
 import type { BusinessCalendar, BusinessHoursRow, HandoffNote, ViewingStatus } from './types';
 
@@ -44,11 +44,21 @@ const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 
+/** 営業時間外の内見は確定ボタンでは確定させず、担当者が手動返信で利用者と調整する（意思決定ログ14） */
+const OFF_HOURS_GUIDE = '営業時間外の内見は、会話ログの手動返信で利用者と調整してください。';
+
 /**
  * 確定日時を決める（'YYYY-MM-DDTHH:mm'）。日付は利用者の候補から選ぶ（担当者が別の日を決めない。DESIGN.md 2.2）。
- * 時刻は担当者が入れる。候補に時刻があり、担当者が空にしたら候補の時刻を使う。候補が日付だけなら時刻は必須
+ * 時刻は担当者が入れる。候補に時刻があり、担当者が空にしたら候補の時刻を使う。候補が日付だけなら時刻は必須。
+ * 開始時刻はいまの営業カレンダーでその日の営業時間内（開店ちょうどは可・閉店ちょうどは不可。`isOpenAt` と同じ境界）。
+ * 時間外・休業日は断る（午前・午後の取り違えを止める。例外で受けるかは担当者がやりとりで決める。意思決定ログ14）
  */
-export function resolveConfirmedTime(candidates: readonly string[], candidate: string, time: string): Result<string> {
+export function resolveConfirmedTime(
+  candidates: readonly string[],
+  candidate: string,
+  time: string,
+  calendar: BusinessCalendar,
+): Result<string> {
   if (!candidates.includes(candidate)) return { ok: false, error: '候補日時から選んでください。' };
   const m = CANDIDATE_PATTERN.exec(candidate);
   if (!m) return { ok: false, error: '候補日時の形式が読めません。' };
@@ -56,6 +66,11 @@ export function resolveConfirmedTime(candidates: readonly string[], candidate: s
   const chosen = time.trim() || candidateTime || '';
   if (!chosen) return { ok: false, error: '時刻を入れてください（候補が日付だけのため）。' };
   if (!TIME_PATTERN.test(chosen)) return { ok: false, error: '時刻は 14:00 の形で入れてください。' };
+  const hours = hoursOn(date, calendar);
+  if (!hours) return { ok: false, error: `${formatJstDay(date)}は休業日の設定です。${OFF_HOURS_GUIDE}` };
+  if (chosen < hours.open || chosen >= hours.close) {
+    return { ok: false, error: `${formatJstDay(date)}の営業時間は ${hours.open}〜${hours.close} です。${OFF_HOURS_GUIDE}` };
+  }
   return { ok: true, value: `${date}T${chosen}` };
 }
 

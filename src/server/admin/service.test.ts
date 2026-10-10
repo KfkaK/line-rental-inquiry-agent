@@ -84,6 +84,20 @@ describe('confirmViewing', () => {
     expect((await repos.conversations.getById(conversation.id))?.aiPaused).toBe(false);
   });
 
+  it('営業時間外の時刻・休業日は確定させず（送らない）、手動返信での調整を案内する', async () => {
+    const { deps, repos, messenger, viewing } = await setup();
+    const result = await confirmViewing(deps, { viewingRequestId: viewing.id, candidate: '2026-10-11', time: '05:05', note: '' });
+    expect(result).toEqual({
+      ok: false,
+      error: '10月11日(日)の営業時間は 10:00〜19:00 です。営業時間外の内見は、会話ログの手動返信で利用者と調整してください。',
+    });
+    // 営業カレンダーは確定の時点の DB の設定で判定する（受付の後に休業日を足した場合）
+    await repos.businessCalendar.setHolidays(['2026-10-11']);
+    expect(await confirmViewing(deps, { viewingRequestId: viewing.id, candidate: '2026-10-11', time: '14:00', note: '' })).toMatchObject({ ok: false });
+    expect((await repos.viewingRequests.getById(viewing.id))?.status).toBe('pending');
+    expect(messenger.pushes).toEqual([]);
+  });
+
   it('時刻の不足・候補に無い日は何も保存せず送らない', async () => {
     const { deps, repos, messenger, viewing } = await setup();
     expect(await confirmViewing(deps, { viewingRequestId: viewing.id, candidate: '2026-10-11', time: '', note: '' })).toMatchObject({ ok: false });

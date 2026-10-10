@@ -76,6 +76,13 @@ function rowFor(date: string, cal: BusinessCalendar): BusinessHoursRow | undefin
   return cal.hours.find((h) => h.weekday === weekday);
 }
 
+/** その日の営業時間（'HH:MM'）。休業日（曜日の休み・休業日リスト）なら null */
+export function hoursOn(date: string, cal: BusinessCalendar): { open: string; close: string } | null {
+  if (!isBusinessDay(date, cal)) return null;
+  const row = rowFor(date, cal)!;
+  return { open: row.open, close: row.close };
+}
+
 /** 営業日か（曜日の設定が休みでなく、休業日リストに無い） */
 export function isBusinessDay(date: string, cal: BusinessCalendar): boolean {
   const row = rowFor(date, cal);
