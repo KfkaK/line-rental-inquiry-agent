@@ -1,13 +1,14 @@
 /**
  * 色のトークン。管理画面（CSS 変数）と LINE の Flex Message の両方がここから色を取る。
  * 直書きの色は使わない。足したら `npm run check:contrast` で AA（本文 4.5:1）を実測する。
- * 暫定パレット: 生成りオフホワイト地 ＋ 白カード ＋ スレートブルー（ユーザー確認前）
+ * パレット: 寒色寄りのニュートラル地 ＋ 白カード ＋ スレートブルー（2026-10-10 ユーザー決定。白ラベルの商品見本に見せるため、
+ * 地と枠線だけ LifeOwner の生成り・暖チャコールから寒色寄りに変えた。意思決定ログ8）
  */
 export const theme = {
   light: {
-    background: '#F7F5F0',
+    background: '#F4F5F7',
     backgroundElement: '#FFFFFF',
-    border: '#DDD8CE',
+    border: '#D8DCE2',
     text: '#1F2933',
     textSecondary: '#5B6670',
     accent: '#3E5C76',
@@ -15,13 +16,13 @@ export const theme = {
     danger: '#9A3B32',
   },
   dark: {
-    background: '#1E1C1A',
-    backgroundElement: '#2A2724',
-    border: '#3D3934',
+    background: '#1B1D20',
+    backgroundElement: '#25282C',
+    border: '#3A3F46',
     text: '#ECE8E2',
     textSecondary: '#B3ACA3',
     accent: '#9DB8CE',
-    onAccent: '#1E1C1A',
+    onAccent: '#1B1D20',
     danger: '#E59A90',
   },
 } as const;
