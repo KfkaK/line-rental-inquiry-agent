@@ -50,7 +50,7 @@ function setup(options: { now?: Date; properties?: Property[]; extractions?: Ext
   const messenger = createFakeMessenger({ profiles: { [USER]: { displayName: 'テスト太郎' } } });
   const queue = [...(options.extractions ?? [])];
   const extractCalls: ExtractInput[] = [];
-  const notifier: StaffNotifier = { viewingRequested: vi.fn(async () => {}) };
+  const notifier: StaffNotifier = { viewingRequested: vi.fn(async () => {}), handoffRequested: vi.fn(async () => {}) };
   const answer = vi.fn(
     async (): Promise<AnswerOutput> => ({ text: '駐輪場はあります。', handoff: null, verification: 'ok', latencyMs: 5, costUsd: 0.002 }),
   );
@@ -238,9 +238,14 @@ describe('handleEvent', () => {
       receivedOutsideHours: true,
       displayName: null,
     });
-    expect(t.notifier.viewingRequested).toHaveBeenCalledWith(
-      expect.objectContaining({ propertyName: expect.stringContaining('テスト荘'), receivedOutsideHours: true }),
-    );
+    expect(t.notifier.viewingRequested).toHaveBeenCalledWith({
+      viewingRequestId: requests[0].id,
+      conversationId: (await t.conversation()).id,
+      propertyName: expect.stringContaining('テスト荘'),
+      candidateTimes: ['2026-10-08', '2026-10-09'],
+      receivedOutsideHours: true,
+    });
+    expect(t.notifier.handoffRequested).not.toHaveBeenCalled();
     expect(textsOf(t.lastReply())[0]).toContain('まだ予約は確定していません');
     expect((await t.conversation()).booking).toBeNull();
   });
@@ -317,5 +322,130 @@ describe('handleEvent', () => {
     expect(conv.handoffNotes.map((n) => [n.text, n.propertyIds])).toEqual([['1番目は駐輪場ある？', ['P1']]]);
     const log = await t.repos.messages.listByConversation(conv.id);
     expect(log.at(-1)?.verification).toBe('replaced');
+  });
+
+  describe('担当者への通知（引き継ぎメモ）', () => {
+    const SAFETY = ex({ intent: 'propertyQuestion', forbiddenTopic: 'safety' });
+
+    it('未対応のメモが無い会話で最初のメモを足したときだけ通知し、続けて届いたメモでは重ねない', async () => {
+      const t = setup({ now: NIGHT, extractions: [SAFETY, SAFETY] });
+      await handleEvent(textEvent('このへん治安どう？'), t.deps);
+      const conv = await t.conversation();
+      expect(t.notifier.handoffRequested).toHaveBeenCalledTimes(1);
+      expect(t.notifier.handoffRequested).toHaveBeenCalledWith({
+        conversationId: conv.id,
+        question: 'このへん治安どう？',
+        topic: 'safety',
+        propertyNames: [],
+        receivedOutsideHours: true,
+      });
+      expect(t.notifier.viewingRequested).not.toHaveBeenCalled();
+
+      await handleEvent(textEvent('夜は危なくない？'), t.deps);
+      expect((await t.conversation()).handoffNotes).toHaveLength(2);
+      expect(t.notifier.handoffRequested).toHaveBeenCalledTimes(1);
+    });
+
+    it('担当者が対応済みにした（handoffResolvedCount を進めた）あとの次のメモは、改めて通知する', async () => {
+      const t = setup({ extractions: [SAFETY, SAFETY, SAFETY, SAFETY] });
+      await handleEvent(textEvent('このへん治安どう？'), t.deps);
+      await handleEvent(textEvent('夜は危なくない？'), t.deps);
+      expect(t.notifier.handoffRequested).toHaveBeenCalledTimes(1);
+
+      const conv = await t.conversation();
+      await t.repos.conversations.update(conv.id, { handoffResolvedCount: conv.handoffNotes.length });
+      await handleEvent(textEvent('駅前は？'), t.deps);
+      expect(t.notifier.handoffRequested).toHaveBeenCalledTimes(2);
+      expect(t.notifier.handoffRequested).toHaveBeenLastCalledWith(
+        expect.objectContaining({ question: '駅前は？', receivedOutsideHours: false }),
+      );
+
+      // 見た後に届いたメモは未対応のまま残るので、その次はまた重ねない
+      await handleEvent(textEvent('やっぱり夜が心配'), t.deps);
+      expect(t.notifier.handoffRequested).toHaveBeenCalledTimes(2);
+    });
+
+    it('回答生成が回した質問は、対象物件の名前と話題つきで通知する', async () => {
+      const t = setup({ extractions: [SEARCH, ex({ intent: 'propertyQuestion', targetPositions: [2] })] });
+      t.answer.mockResolvedValueOnce({ text: null, handoff: { topic: 'vacancy' }, verification: 'ok', latencyMs: 5, costUsd: 0.002 });
+      await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+      expect(t.notifier.handoffRequested).not.toHaveBeenCalled();
+
+      await handleEvent(textEvent('2番目はまだ借りられる？'), t.deps);
+      const p2 = (await t.repos.properties.listPublic()).find((p) => p.id === 'P2');
+      expect(t.notifier.handoffRequested).toHaveBeenCalledTimes(1);
+      expect(t.notifier.handoffRequested).toHaveBeenCalledWith(
+        expect.objectContaining({ question: '2番目はまだ借りられる？', topic: 'vacancy', propertyNames: [p2?.name] }),
+      );
+    });
+
+    it('通知に LINE ユーザー ID・表示名は渡さない', async () => {
+      const t = setup({ extractions: [SAFETY] });
+      await handleEvent(followEvent(), t.deps);
+      await handleEvent(textEvent('このへん治安どう？'), t.deps);
+      const calls = JSON.stringify(vi.mocked(t.notifier.handoffRequested).mock.calls);
+      expect(calls).toContain('このへん治安どう？');
+      expect(calls).not.toContain(USER);
+      expect(calls).not.toContain('テスト太郎');
+    });
+
+    it('LINE への送信が失敗しても、保存したメモは担当者へ通知する', async () => {
+      const t = setup({ extractions: [SAFETY] });
+      t.messenger.failReplyWith = new Error('Invalid reply token');
+      t.messenger.failPushWith = new Error('monthly limit');
+      await expect(handleEvent(textEvent('このへん治安どう？'), t.deps)).rejects.toThrow('monthly limit');
+      expect((await t.conversation()).handoffNotes).toHaveLength(1);
+      expect(t.notifier.handoffRequested).toHaveBeenCalledTimes(1);
+    });
+
+    it('担当者が対応中（ai_paused）の会話では通知しない', async () => {
+      const t = setup({ extractions: [SAFETY] });
+      await t.repos.lineUsers.upsert({ lineUserId: USER });
+      const conv = await t.conversation();
+      await t.repos.conversations.update(conv.id, { aiPaused: true, lastStaffReplyAt: NOON.toISOString() });
+      await handleEvent(textEvent('このへん治安どう？'), t.deps);
+      expect(t.notifier.handoffRequested).not.toHaveBeenCalled();
+      expect(t.notifier.viewingRequested).not.toHaveBeenCalled();
+    });
+
+    it('通知が失敗（reject・同期例外）しても handleEvent は投げず、返信と保存は済んでいる', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const t = setup({ extractions: [SAFETY] });
+        vi.mocked(t.notifier.handoffRequested).mockRejectedValueOnce(new Error('resend down'));
+        await expect(handleEvent(textEvent('このへん治安どう？'), t.deps)).resolves.toBeUndefined();
+        expect(textsOf(t.lastReply())[0]).toContain('担当者が確認します');
+        expect((await t.conversation()).handoffNotes).toHaveLength(1);
+
+        const v = setup({ now: NIGHT, extractions: [SEARCH] });
+        vi.mocked(v.notifier.viewingRequested).mockImplementationOnce(() => {
+          throw new Error('sync failure');
+        });
+        await handleEvent(textEvent('渋谷で9万まで'), v.deps);
+        await handleEvent(postbackEvent(buildPostbackData({ action: 'viewing', propertyId: 'P2' })), v.deps);
+        await handleEvent(postbackEvent(buildPostbackData({ action: 'viewingDay', date: '2026-10-08' })), v.deps);
+        await expect(
+          handleEvent(postbackEvent(buildPostbackData({ action: 'viewingDay', date: '2026-10-09' })), v.deps),
+        ).resolves.toBeUndefined();
+        expect(await v.repos.viewingRequests.listByStatus('pending')).toHaveLength(1);
+        expect(textsOf(v.lastReply())[0]).toContain('まだ予約は確定していません');
+        expect(error).toHaveBeenCalledTimes(2);
+      } finally {
+        error.mockRestore();
+      }
+    });
+
+    it('送信が失敗したうえで通知も失敗したら、投げるのは送信の失敗（通知の失敗で元の例外を覆わない）', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const t = setup({ extractions: [SAFETY] });
+        vi.mocked(t.notifier.handoffRequested).mockRejectedValueOnce(new Error('resend down'));
+        t.messenger.failReplyWith = new Error('Invalid reply token');
+        t.messenger.failPushWith = new Error('monthly limit');
+        await expect(handleEvent(textEvent('このへん治安どう？'), t.deps)).rejects.toThrow('monthly limit');
+      } finally {
+        error.mockRestore();
+      }
+    });
   });
 });

@@ -1,6 +1,6 @@
 /**
- * 本番の部品の組み立て（Supabase・LINE・Claude）。テストは handleEvent に偽物の Deps を渡す。
- * 担当者へのメール通知はまだ無く、ログで代えている（Week 3 で Resend）。
+ * 本番の部品の組み立て（Supabase・LINE・Claude・Resend）。テストは handleEvent に偽物の Deps を渡す。
+ * 担当者へのメール通知は Resend。RESEND_API_KEY と STAFF_NOTIFY_EMAIL が揃わないときはログで代える。
  */
 import { detectForbiddenTopicByKeyword } from '@/domain/forbidden';
 import { relevantAccess } from '@/domain/search';
@@ -10,10 +10,13 @@ import { createLineMessenger } from '@/lib/line/messenger';
 import { generateAnswer } from '@/lib/llm/answer';
 import { createAnthropicClient, type Logger } from '@/lib/llm/client';
 import { extractIntentAndSlots } from '@/lib/llm/extract';
+import { createResendNotifier } from '@/lib/notify/resend';
 import type { Answerer, Deps, Extractor, StaffNotifier } from './handleEvent';
 
 /** DAILY_COST_LIMIT_USD が無いときの1日の API 費用上限（USD） */
 const DEFAULT_DAILY_COST_LIMIT_USD = 5;
+/** NOTIFY_FROM_EMAIL が無いときの差出人（Resend の検証用アドレス。Resend に登録したメールアドレスにだけ届く） */
+const DEFAULT_NOTIFY_FROM = 'お部屋探しAI <onboarding@resend.dev>';
 
 /** 評価（scripts/eval.ts）でモデルを差し替え、ログを集めるための口。本番は既定のまま */
 export interface LlmStageOptions {
@@ -77,14 +80,39 @@ export function createAnswerer(
   };
 }
 
-/** 担当者通知の仮実装（Week 3 で Resend のメールに差し替える）。個人情報はログに出さない */
+/** 担当者通知のログ版（Resend の設定が無いとき）。質問の本文・個人情報はログに出さない */
 export const logNotifier: StaffNotifier = {
   async viewingRequested(info) {
     console.log(
       `[notify] 内見の仮受付 id=${info.viewingRequestId} 候補=${info.candidateTimes.length}件 時間外=${info.receivedOutsideHours}`,
     );
   },
+  async handoffRequested(info) {
+    console.log(
+      `[notify] 引き継ぎメモ 会話=${info.conversationId} 話題=${info.topic ?? 'なし'} 物件=${info.propertyNames.length}件 時間外=${info.receivedOutsideHours}`,
+    );
+  },
 };
+
+/** 通知メールの管理画面リンクの起点。APP_BASE_URL → Vercel の本番 URL → ローカル。末尾の / は落とす */
+function resolveBaseUrl(): string {
+  const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  const url = optionalEnv('APP_BASE_URL') ?? (vercel ? `https://${vercel}` : 'http://localhost:3000');
+  return url.replace(/\/+$/, '');
+}
+
+/** RESEND_API_KEY と STAFF_NOTIFY_EMAIL の両方があれば Resend のメール、無ければログだけ */
+export function createNotifier(): StaffNotifier {
+  const apiKey = optionalEnv('RESEND_API_KEY');
+  const to = optionalEnv('STAFF_NOTIFY_EMAIL');
+  if (!apiKey || !to) return logNotifier;
+  return createResendNotifier({
+    apiKey,
+    to,
+    from: optionalEnv('NOTIFY_FROM_EMAIL') ?? DEFAULT_NOTIFY_FROM,
+    baseUrl: resolveBaseUrl(),
+  });
+}
 
 export function createProductionDeps(): Deps {
   const limit = Number(optionalEnv('DAILY_COST_LIMIT_USD') ?? DEFAULT_DAILY_COST_LIMIT_USD);
@@ -93,7 +121,7 @@ export function createProductionDeps(): Deps {
     messenger: createLineMessenger(),
     extract: createExtractor(),
     answer: createAnswerer(),
-    notifier: logNotifier,
+    notifier: createNotifier(),
     clock: () => new Date(),
     dailyCostLimitUsd: Number.isFinite(limit) ? limit : DEFAULT_DAILY_COST_LIMIT_USD,
   };

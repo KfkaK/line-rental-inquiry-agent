@@ -51,11 +51,26 @@ export interface AnswerOutput {
 /** 提示物件への質問の回答生成＋根拠検証 */
 export type Answerer = (input: AnswerInput) => Promise<AnswerOutput>;
 
+/**
+ * 担当者への通知（メール）。個人情報（LINE ユーザー ID・表示名）は渡さず、管理画面へのリンクで詳細を見てもらう。
+ * 実装は例外を投げない（通知の失敗で利用者への返信や保存を止めない）
+ */
 export interface StaffNotifier {
   viewingRequested(info: {
     viewingRequestId: string;
+    conversationId: string;
     propertyName: string;
     candidateTimes: string[];
+    receivedOutsideHours: boolean;
+  }): Promise<void>;
+  /** 引き継ぎメモ（AI が答えずに担当者へ回した質問）。会話に未対応のメモが無かったときだけ呼ぶ（続けて届いたメモでメールを重ねない） */
+  handoffRequested(info: {
+    conversationId: string;
+    /** 利用者の発話（原文） */
+    question: string;
+    topic: ForbiddenTopic | null;
+    /** 質問の対象物件の名前。無ければ空 */
+    propertyNames: string[];
     receivedOutsideHours: boolean;
   }): Promise<void>;
 }
@@ -213,6 +228,8 @@ export async function handleEvent(event: webhook.Event, deps: Deps): Promise<voi
 
   // ---- 保存（送信より先。送信に失敗しても状態は進める） ----
   if (!isText) await repos.messages.insert({ conversationId: conv.id, role: 'user', text: userText });
+  // 担当者への通知は、足す前の会話に未対応のメモが無かったときだけ（続けて届いたメモでメールを重ねない）
+  const hadOpenHandoff = conv.handoffNotes.length > conv.handoffResolvedCount;
   const handoffNotes = decision.handoffNote
     ? [...conv.handoffNotes, { ...decision.handoffNote, at: startedAt.toISOString() }]
     : undefined;
@@ -238,31 +255,63 @@ export async function handleEvent(event: webhook.Event, deps: Deps): Promise<voi
     costUsd: (extraction?.costUsd ?? 0) + answerCost,
   });
 
+  const receivedOutsideHours = !isOpenAt(startedAt, calendar);
   let viewing: { id: string; propertyName: string } | null = null;
   if (decision.viewingRequest) {
-    const outside = !isOpenAt(startedAt, calendar);
     const created = await repos.viewingRequests.create({
       conversationId: conv.id,
       propertyId: decision.viewingRequest.propertyId,
       candidateTimes: decision.viewingRequest.candidateTimes,
-      receivedOutsideHours: outside,
+      receivedOutsideHours,
     });
     const property = properties.find((p) => p.id === decision.viewingRequest!.propertyId);
     viewing = { id: created.id, propertyName: property?.name ?? decision.viewingRequest.propertyId };
   }
 
-  // ---- 送信と通知（送信に失敗しても、保存済みの仮受付は担当者へ知らせる） ----
+  // ---- 送信と通知（送信に失敗しても、保存済みの仮受付・メモは担当者へ知らせる） ----
   try {
     await send(messenger, userId, replyToken, renderMessages(blocks, decision.quickReplies));
   } finally {
+    const notifications: Promise<void>[] = [];
     if (viewing && decision.viewingRequest) {
-      await deps.notifier.viewingRequested({
-        viewingRequestId: viewing.id,
-        propertyName: viewing.propertyName,
-        candidateTimes: decision.viewingRequest.candidateTimes,
-        receivedOutsideHours: !isOpenAt(startedAt, calendar),
-      });
+      const { id, propertyName } = viewing;
+      const { candidateTimes } = decision.viewingRequest;
+      notifications.push(
+        notifySafely('内見の仮受付', () =>
+          deps.notifier.viewingRequested({
+            viewingRequestId: id,
+            conversationId: conv.id,
+            propertyName,
+            candidateTimes,
+            receivedOutsideHours,
+          }),
+        ),
+      );
     }
+    if (decision.handoffNote && !hadOpenHandoff) {
+      const note = decision.handoffNote;
+      notifications.push(
+        notifySafely('引き継ぎ', () =>
+          deps.notifier.handoffRequested({
+            conversationId: conv.id,
+            question: note.text,
+            topic: note.topic,
+            propertyNames: note.propertyIds.map((id) => properties.find((p) => p.id === id)?.name ?? id),
+            receivedOutsideHours,
+          }),
+        ),
+      );
+    }
+    await Promise.all(notifications);
+  }
+}
+
+/** 通知は実装が投げない約束だが、投げても利用者への返信や元の例外を覆わない */
+async function notifySafely(label: string, notify: () => Promise<void>): Promise<void> {
+  try {
+    await notify();
+  } catch (error) {
+    console.error(`[handleEvent] 担当者通知（${label}）に失敗しました`, error instanceof Error ? error.message : error);
   }
 }
 

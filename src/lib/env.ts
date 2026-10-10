@@ -10,8 +10,18 @@ export const ENV_NAMES = [
   'ANTHROPIC_API_KEY',
   'SUPABASE_URL',
   'SUPABASE_SERVICE_ROLE_KEY',
+  /** 管理画面のログイン（sb_publishable_…）。RLS が効くクライアントを作る */
+  'SUPABASE_PUBLISHABLE_KEY',
   'RESEND_API_KEY',
+  /** 担当者通知メールの宛先。RESEND_API_KEY と両方あるときだけメールを送る（無ければログだけ） */
+  'STAFF_NOTIFY_EMAIL',
+  /** 担当者通知メールの差出人。省略時は Resend の検証用アドレス */
+  'NOTIFY_FROM_EMAIL',
+  /** 通知メールに載せる管理画面の URL の起点（例: https://line-rental-agent.vercel.app）。省略時は Vercel の本番 URL */
+  'APP_BASE_URL',
   'DAILY_COST_LIMIT_USD',
+  /** ローカル開発専用: '1' で管理画面をインメモリのデモデータで開く（ログイン不要）。本番ビルドでは無視する */
+  'ADMIN_PREVIEW',
 ] as const;
 export type EnvName = (typeof ENV_NAMES)[number];
 
