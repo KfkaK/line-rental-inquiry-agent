@@ -124,9 +124,11 @@ export function handoff(topic: ForbiddenTopic | null, outsideHours: boolean, con
   return `${what}担当者が確認します。${when}\nそのあいだも物件探しはお手伝いできます。`;
 }
 
-export function askViewingTimes(propertyName: string, collected: readonly string[]): string {
+/** `exampleDay` は最初の候補日（YYYY-MM-DD）。例を固定の日付にすると過去の日付になるので、候補日から作る */
+export function askViewingTimes(propertyName: string, collected: readonly string[], exampleDay: string | undefined): string {
   if (collected.length === 0) {
-    return `「${propertyName}」の内見ですね。ご希望の日時を2〜3つ教えてください（例: 10月10日 14時）。下の候補日から選ぶこともできます。`;
+    const example = exampleDay ? `（例: ${formatJstDay(exampleDay)} 14時）` : '';
+    return `「${propertyName}」の内見ですね。ご希望の日時を2〜3つ教えてください${example}。下の候補日から選ぶこともできます。`;
   }
   return `いま ${collected.map(formatViewingTime).join('、')} をお預かりしています。ほかの候補があれば教えてください。このままでよければ「この日時で送る」を押してください。`;
 }

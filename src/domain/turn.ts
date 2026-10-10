@@ -19,7 +19,7 @@ import {
   VIEWING_DAYS_TO_OFFER,
 } from './rules';
 import { searchProperties } from './search';
-import { applySlotOps, listConditions, missingForSearch, priorityOp, sameRef } from './slots';
+import { applySlotOps, emptySlots, listConditions, missingForSearch, priorityOp, sameRef } from './slots';
 import type {
   BookingDraft,
   BusinessCalendar,
@@ -111,8 +111,10 @@ function quickAsk(key: ScalarSlotKey): QuickReplyItem[] {
 export function decideTurn(conv: ConversationSnapshot, event: TurnEvent, ctx: TurnContext): TurnDecision {
   switch (event.kind) {
     case 'follow':
+      // ブロック解除による友だち追加し直しでも、あいさつでエリアと予算を聞き直すので前回の条件は捨てる
       return {
         ...base(conv),
+        next: initialSnapshot(),
         replies: [{ type: 'text', text: msg.greeting(!isOpenAt(ctx.now, ctx.calendar)) }],
         quickReplies: quickAsk('area'),
       };
@@ -137,6 +139,11 @@ export function decideTurn(conv: ConversationSnapshot, event: TurnEvent, ctx: Tu
     case 'text':
       return onText(conv, event.text, event.extraction, ctx);
   }
+}
+
+/** 会話の初期状態（スロット・提示済み・内見の下書きなし） */
+export function initialSnapshot(): ConversationSnapshot {
+  return { state: 'hearing', slots: emptySlots(), shownPropertyIds: [], priorityAskedCount: 0, booking: null };
 }
 
 function base(conv: ConversationSnapshot): TurnDecision {
@@ -343,7 +350,7 @@ function addViewing(conv: ConversationSnapshot, propertyId: string, times: reado
 
   const replies: ReplyBlock[] = [];
   if (valid.length < times.length) replies.push({ type: 'text', text: msg.invalidViewingTimes(firstDay) });
-  replies.push({ type: 'text', text: msg.askViewingTimes(property.name, booking.candidateTimes) });
+  replies.push({ type: 'text', text: msg.askViewingTimes(property.name, booking.candidateTimes, firstDay) });
   const quickReplies: QuickReplyItem[] = offered
     .filter((d) => !booking.candidateTimes.some((t) => t.startsWith(d)))
     .map((date) => ({ label: formatJstDay(date), action: { kind: 'event', event: { kind: 'viewingDay', date } } }));

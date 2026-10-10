@@ -51,6 +51,15 @@ describe('ヒアリングと検索', () => {
     expect(d.quickReplies.map((q) => q.label)).toContain('渋谷');
   });
 
+  it('友だち追加し直し（ブロック解除）: 前回の条件・提示・内見の下書きを捨てて聞き直す', () => {
+    const props = shibuya(8);
+    const viewing = decideTurn(search(props).next, { kind: 'viewing', propertyId: 'S001' }, ctx(props));
+    expect(viewing.next.booking).not.toBeNull();
+    const d = decideTurn(viewing.next, { kind: 'follow' }, ctx(props, NIGHT));
+    expect(d.next).toEqual(fresh());
+    expect(texts(d)[0]).toContain('エリア');
+  });
+
   it('エリアだけなら予算を1つだけ聞き返す', () => {
     const d = search(shibuya(3), [AREA_AND_BUDGET[0]]);
     expect(texts(d)).toEqual([expect.stringContaining('ご予算')]);
@@ -210,6 +219,8 @@ describe('内見の仮受付', () => {
     expect(d.next.state).toBe('booking');
     expect(d.next.booking).toEqual({ propertyId: 'S001', candidateTimes: [] });
     expect(d.quickReplies.map((q) => q.label)).toEqual(['10月8日(木)', '10月9日(金)', '10月10日(土)', '10月11日(日)', '10月12日(月)']);
+    // 例の日時は最初の候補日から作る（固定の日付だと過去になる）
+    expect(texts(d)[0]).toContain('（例: 10月8日(木) 14時）');
   });
 
   it('候補日を2つ選ぶと受け付け、確定はしない（担当者が確定する）', () => {
