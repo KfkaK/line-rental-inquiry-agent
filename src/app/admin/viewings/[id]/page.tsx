@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Suspense, type ReactNode } from 'react';
+import { hoursOn } from '@/domain/businessHours';
 import { formatManYen } from '@/domain/labels';
 import { formatViewingTime } from '@/domain/messages';
 import { monthlyCost } from '@/domain/search';
@@ -33,7 +34,7 @@ async function ViewingContent({ params }: { params: PageProps<'/admin/viewings/[
   const { user, repos } = await requireAdmin();
   const viewing = await repos.viewingRequests.getById(id);
   if (!viewing) notFound();
-  const [property] = await repos.properties.getByIds([viewing.propertyId]);
+  const [[property], calendar] = await Promise.all([repos.properties.getByIds([viewing.propertyId]), repos.businessCalendar.get()]);
   const openNotes = openHandoffNotes(viewing.handoffNotes, viewing.handoffResolvedCount);
   const canEdit = user.role === 'staff';
 
@@ -103,7 +104,12 @@ async function ViewingContent({ params }: { params: PageProps<'/admin/viewings/[
         <ViewingActions
           viewingRequestId={viewing.id}
           status={viewing.status}
-          candidates={viewing.candidateTimes.map((value) => ({ value, label: formatViewingTime(value), time: candidateTimePart(value) }))}
+          candidates={viewing.candidateTimes.map((value) => ({
+            value,
+            label: formatViewingTime(value),
+            time: candidateTimePart(value),
+            hours: hoursOn(value.slice(0, 10), calendar),
+          }))}
           isDemo={viewing.isDemo}
         />
       ) : (

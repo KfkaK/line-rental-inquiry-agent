@@ -16,6 +16,14 @@ export interface CandidateOption {
   label: string;
   /** 候補の時刻（'14:00'）。日付だけなら空 */
   time: string;
+  /** その日の営業時間（いまの設定）。休業日なら null。確定できるのはこの時間内だけ（サーバーでも検証する） */
+  hours: { open: string; close: string } | null;
+}
+
+/** 候補の時刻が営業時間外か（日付だけの候補は時刻が無いので外にしない） */
+function isOffHours(c: CandidateOption): boolean {
+  if (!c.hours) return true;
+  return c.time !== '' && (c.time < c.hours.open || c.time >= c.hours.close);
 }
 
 interface Props {
@@ -92,7 +100,10 @@ function ConfirmForm({
               }}
               className="size-4"
             />
-            <span>{c.label}</span>
+            <span>
+              {c.label}
+              {isOffHours(c) && <span className="ml-2 text-sm text-muted">（{c.hours ? '営業時間外' : '休業日'}）</span>}
+            </span>
           </label>
         ))}
       </fieldset>
@@ -107,10 +118,18 @@ function ConfirmForm({
           value={time}
           onChange={(e) => setTime(e.target.value)}
           required={!selected?.time}
+          min={selected?.hours?.open}
+          max={selected?.hours?.close}
           className={`${inputClass} sm:max-w-40`}
         />
         <p className={`${hintClass} mt-1`}>
           {selected?.time ? '空にすると、候補の時刻で確定します。' : 'この候補は日付だけなので、時刻を入れてください。'}
+        </p>
+        <p className={`${hintClass} mt-1`}>
+          {selected?.hours
+            ? `この日の営業時間: ${selected.hours.open}〜${selected.hours.close}（この時間内でだけ確定できます）`
+            : 'この日は休業日の設定のため確定できません。'}
+          営業時間外の内見は、会話ログの手動返信で利用者と調整してください。
         </p>
       </div>
       <div>

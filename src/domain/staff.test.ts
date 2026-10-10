@@ -43,19 +43,50 @@ describe('内見の仮受付の状態', () => {
 
 describe('resolveConfirmedTime', () => {
   const candidates = ['2026-10-10T14:00', '2026-10-11'];
+  /** 既定: 毎日 10:00〜19:00・水曜定休（2026-10-10 は土曜、10-11 は日曜） */
+  const cal = defaultCalendar();
+  const guide = '営業時間外の内見は、会話ログの手動返信で利用者と調整してください。';
 
   it('候補の日付に担当者の時刻を付ける。候補に時刻があって空欄なら候補の時刻', () => {
-    expect(resolveConfirmedTime(candidates, '2026-10-11', '10:30')).toEqual({ ok: true, value: '2026-10-11T10:30' });
-    expect(resolveConfirmedTime(candidates, '2026-10-10T14:00', '')).toEqual({ ok: true, value: '2026-10-10T14:00' });
-    expect(resolveConfirmedTime(candidates, '2026-10-10T14:00', ' 15:00 ')).toEqual({ ok: true, value: '2026-10-10T15:00' });
+    expect(resolveConfirmedTime(candidates, '2026-10-11', '10:30', cal)).toEqual({ ok: true, value: '2026-10-11T10:30' });
+    expect(resolveConfirmedTime(candidates, '2026-10-10T14:00', '', cal)).toEqual({ ok: true, value: '2026-10-10T14:00' });
+    expect(resolveConfirmedTime(candidates, '2026-10-10T14:00', ' 15:00 ', cal)).toEqual({ ok: true, value: '2026-10-10T15:00' });
   });
 
   it('候補に無い日・日付だけの候補で時刻なし・形の崩れた時刻は断る', () => {
-    expect(resolveConfirmedTime(candidates, '2026-10-12', '10:00')).toMatchObject({ ok: false });
-    expect(resolveConfirmedTime(candidates, '2026-10-11', '')).toEqual({ ok: false, error: '時刻を入れてください（候補が日付だけのため）。' });
-    expect(resolveConfirmedTime(candidates, '2026-10-11', '25:00')).toMatchObject({ ok: false });
-    expect(resolveConfirmedTime(candidates, '2026-10-11', '9:00')).toMatchObject({ ok: false });
-    expect(resolveConfirmedTime(['あした'], 'あした', '10:00')).toMatchObject({ ok: false });
+    expect(resolveConfirmedTime(candidates, '2026-10-12', '10:00', cal)).toMatchObject({ ok: false });
+    expect(resolveConfirmedTime(candidates, '2026-10-11', '', cal)).toEqual({ ok: false, error: '時刻を入れてください（候補が日付だけのため）。' });
+    expect(resolveConfirmedTime(candidates, '2026-10-11', '25:00', cal)).toMatchObject({ ok: false });
+    expect(resolveConfirmedTime(candidates, '2026-10-11', '9:00', cal)).toMatchObject({ ok: false });
+    expect(resolveConfirmedTime(['あした'], 'あした', '10:00', cal)).toMatchObject({ ok: false });
+  });
+
+  it('営業時間外の時刻は確定させず、手動返信での調整を案内する（午前・午後の取り違えを止める）', () => {
+    expect(resolveConfirmedTime(candidates, '2026-10-11', '05:05', cal)).toEqual({
+      ok: false,
+      error: `10月11日(日)の営業時間は 10:00〜19:00 です。${guide}`,
+    });
+    // 候補の時刻そのものが時間外でも、空欄のまま押せば候補の時刻で判定して断る
+    expect(resolveConfirmedTime(['2026-10-10T21:00'], '2026-10-10T21:00', '', cal)).toMatchObject({ ok: false });
+  });
+
+  it('境界は isOpenAt と同じ: 開店ちょうどは可、閉店ちょうどは不可、閉店間際は可', () => {
+    expect(resolveConfirmedTime(candidates, '2026-10-11', '10:00', cal)).toMatchObject({ ok: true });
+    expect(resolveConfirmedTime(candidates, '2026-10-11', '09:59', cal)).toMatchObject({ ok: false });
+    expect(resolveConfirmedTime(candidates, '2026-10-11', '18:59', cal)).toMatchObject({ ok: true });
+    expect(resolveConfirmedTime(candidates, '2026-10-11', '19:00', cal)).toMatchObject({ ok: false });
+  });
+
+  it('いまの設定でその日が休業日（定休日・後から足した休業日）なら断る', () => {
+    expect(resolveConfirmedTime(['2026-10-14'], '2026-10-14', '14:00', cal)).toEqual({
+      ok: false,
+      error: `10月14日(水)は休業日の設定です。${guide}`,
+    });
+    expect(resolveConfirmedTime(candidates, '2026-10-11', '14:00', { ...cal, holidays: ['2026-10-11'] })).toMatchObject({ ok: false });
+    // 営業時間を変えたら、いまの設定で判定する
+    const late = { ...cal, hours: cal.hours.map((h) => (h.weekday === 0 ? { ...h, open: '12:00', close: '21:00' } : h)) };
+    expect(resolveConfirmedTime(candidates, '2026-10-11', '10:30', late)).toMatchObject({ ok: false });
+    expect(resolveConfirmedTime(candidates, '2026-10-11', '20:00', late)).toMatchObject({ ok: true });
   });
 });
 

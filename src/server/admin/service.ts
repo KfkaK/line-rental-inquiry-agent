@@ -102,7 +102,8 @@ export async function confirmViewing(
     const target = await loadViewing(deps, input.viewingRequestId, 'confirmed');
     if ('ok' in target) return target;
     const { viewing, conversation } = target;
-    const time = resolveConfirmedTime(viewing.candidateTimes, input.candidate, input.time);
+    const calendar = await deps.repos.businessCalendar.get();
+    const time = resolveConfirmedTime(viewing.candidateTimes, input.candidate, input.time, calendar);
     if (!time.ok) return fail(time.error);
     const note = checkConfirmNote(input.note);
     if (!note.ok) return fail(note.error);
