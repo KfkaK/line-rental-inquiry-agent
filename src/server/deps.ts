@@ -3,7 +3,6 @@
  * 担当者へのメール通知はまだ無く、ログで代えている（Week 3 で Resend）。
  */
 import { detectForbiddenTopicByKeyword } from '@/domain/forbidden';
-import * as msg from '@/domain/messages';
 import { relevantAccess } from '@/domain/search';
 import { createSupabaseRepositories } from '@/lib/db';
 import { optionalEnv } from '@/lib/env';
@@ -43,11 +42,17 @@ export function createExtractor(client = createAnthropicClient()): Extractor {
 }
 
 /**
+ * 回答生成の1回の待ち時間の上限。条件抽出（30 秒・再試行 1 回）のあとに続くので、短くして再試行もしない。
+ * Webhook の maxDuration（60 秒）に収め、時間切れでも引き継ぎ文で返せるようにする（実測 1.8〜5.8 秒）
+ */
+const ANSWER_TIMEOUT_MS = 15_000;
+
+/**
  * 回答生成（Sonnet 5.5・ツール1回）＋根拠検証（`src/domain/verify.ts`）。意思決定ログ6。
  * 安全分類器の拒否でもサーバー側のフォールバックは使わない（拒否は引き継ぎに倒せば安全で、
  * 料金表に無いモデルで応答されると費用の計上が例外になるため）
  */
-export function createAnswerer(client = createAnthropicClient()): Answerer {
+export function createAnswerer(client = createAnthropicClient({ timeoutMs: ANSWER_TIMEOUT_MS, maxRetries: 0 })): Answerer {
   return async ({ question, targets, now }) => {
     const out = await generateAnswer({ question, targets, now, client });
     return {
@@ -61,15 +66,6 @@ export function createAnswerer(client = createAnthropicClient()): Answerer {
   };
 }
 
-/** 回答生成の代わりに対象物件の詳細を DB の項目だけで返す（推測で補わないので根拠検証は常に ok）。評価で比べる基準の構成 */
-export const detailAnswerer: Answerer = async ({ targets }) => ({
-  text: targets.map((t) => msg.propertyDetail(t.property, t.position)).join('\n\n'),
-  handoff: null,
-  verification: 'ok',
-  latencyMs: 0,
-  costUsd: 0,
-});
-
 /** 担当者通知の仮実装（Week 3 で Resend のメールに差し替える）。個人情報はログに出さない */
 export const logNotifier: StaffNotifier = {
   async viewingRequested(info) {
@@ -81,12 +77,11 @@ export const logNotifier: StaffNotifier = {
 
 export function createProductionDeps(): Deps {
   const limit = Number(optionalEnv('DAILY_COST_LIMIT_USD') ?? DEFAULT_DAILY_COST_LIMIT_USD);
-  const client = createAnthropicClient();
   return {
     repos: createSupabaseRepositories(),
     messenger: createLineMessenger(),
-    extract: createExtractor(client),
-    answer: createAnswerer(client),
+    extract: createExtractor(),
+    answer: createAnswerer(),
     notifier: logNotifier,
     clock: () => new Date(),
     dailyCostLimitUsd: Number.isFinite(limit) ? limit : DEFAULT_DAILY_COST_LIMIT_USD,

@@ -458,7 +458,7 @@ export function fallbackExtraction(): ExtractionResult {
   return { intent: 'offTopic', ops: [], targetPositions: [], viewingTimes: [], forbiddenTopic: null };
 }
 
-function describeZodError(error: z.ZodError): string {
+export function describeZodError(error: z.ZodError): string {
   return error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join(' / ');
 }
 

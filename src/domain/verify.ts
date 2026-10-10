@@ -9,13 +9,16 @@
  * - タグに無い設備・周辺環境（エレベーター・駐車場・コンビニなど）と禁止トピックは、
  *   「記載がありません」「担当者が確認します」の文脈でだけ書いてよい
  * - 質問に出てきた数値は「9万円以内」「2階以上」のような比較の形でだけ繰り返してよい（条件の復唱）
+ * - 質問に出てきた駅・区・間取りは、否定か記載なしの文脈（「1LDKではなく1Kです」）でだけ繰り返してよい
  *
  * 語の極性（ある／ない／記載なし）は、語の後ろから文の述語（です・ます・ません）までを見て決める。
  * 「オートロック・宅配ボックスはありません」のように並べた語は、後ろの述語を共有する。
  * 語の意味までは読まないので、言い換えで書かれた根拠の無い情報（「小型犬のみ」など）は拾えない。そこは評価セットで見る。
+ * 表記ゆれの正規化と駅・区の検出は、ヒアリングと同じ辞書（normalize.ts）を使う。
  */
-import { toJst } from './businessHours';
-import { STATIONS, WARDS } from './stations';
+import { jstYear } from './businessHours';
+import { findStationsInText, findWardsInText, normalizeText } from './normalize';
+import { ANSWER_MAX_CHARS, AREA_MATCH_TOLERANCE_SQM } from './rules';
 import { LAYOUTS, type ForbiddenTopic, type Property, type Tag } from './types';
 
 export interface VerifyTarget {
@@ -54,9 +57,6 @@ export interface VerifyResult {
   issues: VerifyIssue[];
 }
 
-/** 回答文の上限（LINE のテキストは 5,000 字まで。回答は短く保つ） */
-export const ANSWER_MAX_CHARS = 800;
-
 export function verifyAnswer(input: VerifyInput): VerifyResult {
   const issues: VerifyIssue[] = [];
   const raw = normalize(input.text).trim();
@@ -65,27 +65,36 @@ export function verifyAnswer(input: VerifyInput): VerifyResult {
 
   const question = normalize(input.question);
   const properties = input.targets.map((t) => t.property);
-  // 物件名・住所は表記どおりなら通す（「第2〜」「1-2-3」の数字や、名前に入った駅名を照合しない）
+  // 物件名・住所は表記どおりなら通す（「第2〜」「1-2-3」の数字や、名前に入った駅名を照合しない）。
+  // 回答文と同じ正規化をかけ、回答生成が見せる形（山括弧を落とした名前）も含める
   const text = stripLiterals(
     raw,
-    properties.flatMap((p) => [p.name, normalize(p.address)]),
+    properties.flatMap((p) => [p.name, p.name.replace(/[<>]/g, ''), p.address, p.address.replace(/[<>]/g, '')].map(normalize)),
   );
 
   checkLayouts(text, question, properties, issues);
   checkPlaces(text, question, properties, issues);
-  checkNumbers(text, question, input.targets, toJstYear(input.now), issues);
+  checkNumbers(text, question, input.targets, jstYear(input.now), issues);
   checkTerms(text, properties, issues);
   return { ok: issues.length === 0, issues };
 }
 
+/**
+ * 回答文が「レコードに記載が無い」と言っているか。モデルが要引き継ぎ（needsStaff）を付け忘れても、
+ * 利用者に「記載はありません」だけを返して行き止まりにしないために使う
+ */
+export function saysNotInRecord(text: string): boolean {
+  return NOT_IN_RECORD_RE.test(normalize(text));
+}
+
 // ---------- 前処理 ----------
 
-const FULL_WIDTH = /[０-９．，：]/g;
-
-/** 全角の数字・記号を半角に、面積と「か月」の表記ゆれを1つにそろえる */
+/**
+ * ヒアリングと同じ正規化（全角 → 半角・単位つき漢数字 → 算用数字・空白の圧縮）をかけ、
+ * 面積と「か月」の表記ゆれを1つにそろえる
+ */
 function normalize(text: string): string {
-  return text
-    .replace(FULL_WIDTH, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+  return normalizeText(text)
     .replace(/(\d)\s*(?:m2|m²|㎡|平米|平方メートル)/g, (_m, d: string) => `${d}㎡`)
     .replace(/(\d)\s*(?:ヶ|ケ|カ|ヵ|箇|か)\s*月/g, (_m, d: string) => `${d}か月`)
     .replace(/(\d)\s*(円|万|分|階|年|月|日|件|番目)/g, (_m, d: string, u: string) => `${d}${u}`);
@@ -102,10 +111,6 @@ function stripLiterals(text: string, literals: readonly string[]): string {
   return out;
 }
 
-function toJstYear(now: Date): number {
-  return Number(toJst(now).date.slice(0, 4));
-}
-
 // ---------- 間取り・駅・区 ----------
 
 const LAYOUT_RE = /(\d)(SLDK|LDK|DK|K|R)(?![A-Za-z])/g;
@@ -114,52 +119,48 @@ function checkLayouts(text: string, question: string, properties: readonly Prope
   for (const m of text.matchAll(LAYOUT_RE)) {
     const layout = `${m[1]}${m[2]}`;
     const known = (LAYOUTS as readonly string[]).includes(layout);
-    if (known && (properties.some((p) => p.layout === layout) || question.includes(layout))) continue;
+    if (known && properties.some((p) => p.layout === layout)) continue;
+    if (known && question.includes(layout) && deniedAfter(text, m.index + m[0].length)) continue;
     issues.push({ kind: 'layout', layout });
   }
 }
 
-/** 長い名前から先に探し、短い名前が長い名前の一部（中目黒の目黒）として拾われないようにする */
-const STATION_NAMES = STATIONS.map((s) => s.name).sort((a, b) => b.length - a.length);
-const WARD_NAMES = [...WARDS].sort((a, b) => b.length - a.length);
-
+/** 駅・区はヒアリングと同じ辞書で拾う（「中目黒」の中の「目黒」・「渋谷区」の「渋谷」を駅にしない） */
 function checkPlaces(text: string, question: string, properties: readonly Property[], issues: VerifyIssue[]): void {
-  const wardSpans = findAll(text, WARD_NAMES);
-  for (const { word } of wardSpans) {
-    if (properties.some((p) => p.ward === word) || question.includes(word)) continue;
-    issues.push({ kind: 'ward', ward: word });
+  for (const ward of new Set(findWardsInText(text))) {
+    if (properties.some((p) => p.ward === ward) || echoDenied(text, question, ward)) continue;
+    issues.push({ kind: 'ward', ward });
   }
-  // 区の名前の中の駅名（渋谷区の渋谷）は駅として数えない
-  const stationSpans = findAll(text, STATION_NAMES).filter(
-    (s) => !wardSpans.some((w) => s.start >= w.start && s.end <= w.end) && text[s.end] !== '区' && text[s.end] !== '市',
-  );
-  const seen = new Set<string>();
-  for (const { word } of stationSpans) {
-    if (seen.has(word)) continue;
-    seen.add(word);
-    if (properties.some((p) => p.access.some((a) => a.station === word)) || question.includes(word)) continue;
-    issues.push({ kind: 'station', station: word });
+  for (const station of new Set(findStationsInText(text))) {
+    if (properties.some((p) => p.access.some((a) => a.station === station)) || echoDenied(text, question, station)) continue;
+    issues.push({ kind: 'station', station });
   }
+}
+
+/** 質問に出た語を、否定か記載なしの文脈で繰り返しているか（「恵比寿駅は最寄りではありません」） */
+function echoDenied(text: string, question: string, word: string): boolean {
+  if (!question.includes(word)) return false;
+  let i = text.indexOf(word);
+  if (i === -1) return false;
+  while (i !== -1) {
+    if (!deniedAfter(text, i + word.length)) return false;
+    i = text.indexOf(word, i + word.length);
+  }
+  return true;
+}
+
+/** 位置 `from` から述語の終わりまでが、否定か記載なしか */
+function deniedAfter(text: string, from: number): boolean {
+  PREDICATE_END_RE.lastIndex = from;
+  const end = PREDICATE_END_RE.exec(text);
+  const window = text.slice(from, end ? end.index + end[0].length : text.length).replace(NOT_NEGATION_RE, '');
+  return NEUTRAL_RE.test(window) || ABSENT_RE.test(window);
 }
 
 interface Span {
   start: number;
   end: number;
   word: string;
-}
-
-/** 語の出現位置（重なったら先に見つけた長い語を残す） */
-function findAll(text: string, words: readonly string[]): Span[] {
-  const spans: Span[] = [];
-  for (const word of words) {
-    let i = text.indexOf(word);
-    while (i !== -1) {
-      const end = i + word.length;
-      if (!spans.some((s) => i < s.end && end > s.start)) spans.push({ start: i, end, word });
-      i = text.indexOf(word, end);
-    }
-  }
-  return spans.sort((a, b) => a.start - b.start);
 }
 
 // ---------- 数値 ----------
@@ -210,7 +211,7 @@ const NUMBER_PATTERNS: ReadonlyArray<{ re: RegExp; read: (m: RegExpExecArray) =>
 ];
 
 /** 数字を含むが数値として照合しない語（タグ名や言い回し。間取りは checkLayouts が見る） */
-const NUMERIC_PHRASES = ['2人入居可', '2人入居', '1人暮らし', '2人暮らし', '3点ユニット'];
+const NUMERIC_PHRASES = ['2人入居可', '2人入居', '2名入居', '2人で住', '1人暮らし', '2人暮らし', '3点ユニット'];
 
 /**
  * 漢数字の数値（回答は算用数字で書かせるので、出てきたら照合できない数値として扱う）。
@@ -294,7 +295,7 @@ function allowedValues(targets: readonly VerifyTarget[], year: number): Allowed 
 
 function matches(allowed: Allowed, token: NumToken): boolean {
   const pool = allowed[token.unit];
-  if (token.unit === 'sqm') return pool.some((v) => Math.abs(v - token.value) < 0.051);
+  if (token.unit === 'sqm') return pool.some((v) => Math.abs(v - token.value) < AREA_MATCH_TOLERANCE_SQM);
   return pool.includes(token.value);
 }
 
@@ -309,27 +310,46 @@ type Term =
 const tag = (t: Tag) => (p: Property) => p.tags.includes(t);
 
 const TERMS: readonly Term[] = [
-  { kind: 'feature', feature: 'ペット可', re: /ペット/g, has: tag('ペット可') },
-  { kind: 'feature', feature: 'バストイレ別', re: /(?:バス|風呂|浴室)(?:と|・)?トイレ|トイレ(?:と|・)?(?:お風呂|浴室|バス)/g, has: tag('バストイレ別') },
+  // 語幹はヒアリングと取込のタグ辞書（normalize.ts の TAG_DEFS）の同義語に合わせる。回答文は normalizeText 済み（二人 → 2人）
+  { kind: 'feature', feature: 'ペット可', re: /ペット|犬|猫/g, has: tag('ペット可') },
+  {
+    kind: 'feature',
+    feature: 'バストイレ別',
+    re: /(?:バス|風呂|浴室|洗い場)(?:と|・|\/)?トイレ|トイレ(?:と|・)?(?:お風呂|風呂|浴室|バス)|B\/?T|セパレート|トイレ別/g,
+    has: tag('バストイレ別'),
+  },
   { kind: 'feature', feature: 'バストイレ別', re: /ユニットバス|3点ユニット|三点ユニット/g, has: tag('バストイレ別'), invert: true },
-  { kind: 'feature', feature: 'オートロック', re: /オートロック/g, has: tag('オートロック') },
-  { kind: 'feature', feature: '独立洗面台', re: /洗面/g, has: tag('独立洗面台') },
-  { kind: 'feature', feature: '室内洗濯機置場', re: /洗濯機/g, has: tag('室内洗濯機置場') },
+  { kind: 'feature', feature: 'オートロック', re: /オートロック|自動ロック/g, has: tag('オートロック') },
+  { kind: 'feature', feature: '独立洗面台', re: /洗面|独洗|シャンプードレッサー/g, has: tag('独立洗面台') },
+  { kind: 'feature', feature: '室内洗濯機置場', re: /洗濯機|室内洗濯/g, has: tag('室内洗濯機置場') },
   { kind: 'feature', feature: '宅配ボックス', re: /宅配/g, has: tag('宅配ボックス') },
-  { kind: 'feature', feature: 'エアコン', re: /エアコン|冷暖房/g, has: tag('エアコン') },
+  { kind: 'feature', feature: 'エアコン', re: /エアコン|冷暖房|クーラー|AC(?:付|完備)/g, has: tag('エアコン') },
   { kind: 'feature', feature: 'フローリング', re: /フローリング/g, has: tag('フローリング') },
-  { kind: 'feature', feature: '角部屋', re: /角部屋/g, has: tag('角部屋') },
-  { kind: 'feature', feature: '南向き', re: /南向き/g, has: tag('南向き') },
-  { kind: 'feature', feature: '日当たり良好', re: /日当たり|日当り|陽当たり|陽当り|採光/g, has: tag('日当たり良好') },
-  { kind: 'feature', feature: '静か', re: /静か|閑静/g, has: tag('静か') },
-  { kind: 'feature', feature: '駐輪場', re: /駐輪|自転車/g, has: tag('駐輪場') },
+  {
+    kind: 'feature',
+    feature: '角部屋',
+    re: /角部屋|角住戸|角の(?:お)?部屋|角室|角ルーム|コーナー(?:ルーム|部屋|住戸)/g,
+    has: tag('角部屋'),
+  },
+  { kind: 'feature', feature: '南向き', re: /南向|南面|南側|サウスビュー/g, has: tag('南向き') },
+  {
+    kind: 'feature',
+    feature: '日当たり良好',
+    re: /日当たり|日当り|日あたり|陽当たり|陽当り|陽あたり|日照|採光|日差し|日射し|明るい(?:お)?部屋/g,
+    has: tag('日当たり良好'),
+  },
+  { kind: 'feature', feature: '静か', re: /静か|閑静|静寂|静穏|落ち着いた/g, has: tag('静か') },
+  { kind: 'feature', feature: '駐輪場', re: /駐輪|自転車|サイクルポート/g, has: tag('駐輪場') },
   {
     kind: 'feature',
     feature: '2人入居可',
-    re: /2人入居|二人入居|ふたり入居|2人暮らし|二人暮らし|ふたり暮らし|カップル|同棲|ルームシェア/g,
+    re: /2人入居|2名入居|ふたり入居|2人暮らし|ふたり暮らし|2人で住|カップル|同棲|夫婦|新婚|ルームシェア/g,
     has: tag('2人入居可'),
   },
-  { kind: 'feature', feature: '楽器相談可', re: /楽器/g, has: tag('楽器相談可') },
+  { kind: 'feature', feature: '楽器相談可', re: /楽器|ピアノ|ギター|ドラム|バイオリン|ヴァイオリン|サックス|音楽/g, has: tag('楽器相談可') },
+  // 「敷礼ゼロ」「ゼロゼロ」は敷金・礼金の両方がゼロのこと（無いと書いたら両方 0 の物件が要る）
+  { kind: 'feature', feature: '敷金・礼金', re: /敷礼/g, has: (p) => p.depositMonths > 0 || p.keyMoneyMonths > 0 },
+  { kind: 'feature', feature: '敷金・礼金', re: /ゼロゼロ/g, has: (p) => p.depositMonths > 0 || p.keyMoneyMonths > 0, invert: true },
   { kind: 'feature', feature: '敷金', re: /敷金/g, has: (p) => p.depositMonths > 0 },
   { kind: 'feature', feature: '礼金', re: /礼金/g, has: (p) => p.keyMoneyMonths > 0 },
   {
@@ -346,16 +366,24 @@ const TERMS: readonly Term[] = [
 
 type Polarity = 'present' | 'absent' | 'neutral';
 
-/** 「記載がありません」「担当者が確認します」など、有無を言っていない文脈 */
-const NEUTRAL_RE =
-  /確認|問い合わせ|記載(?:が|は)?(?:ありません|ない|なく|ございません)|情報(?:が|は)?(?:ありません|ない|なく|ございません)|分かりかね|わかりかね|お答えでき|お伝えでき|不明|分かりません|わかりません|ご質問|お尋ね/;
+/** 「記載がありません」「分かりかねます」など、レコードに無いと言う言い回し */
+const NOT_IN_RECORD_RE =
+  /記載(?:が|は)?(?:ありません|ない|なく|ございません)|情報(?:が|は)?(?:ありません|ない|なく|ございません)|分かりかね|わかりかね|お答えでき|お伝えでき|確認でき(?:ません|ない|かね)|不明|分かりません|わかりません/;
+/**
+ * 有無を言っていない文脈（レコードに無い・担当者が確認する）。「確認」は担当者がこれから確かめる形だけで、
+ * 「ご確認ください」「確認済み」「確認できます」は有無を言っているので含めない
+ */
+const NEUTRAL_RE = new RegExp(`${NOT_IN_RECORD_RE.source}|(?<!ご)確認(?:します|いたします|して(?!ください|いただ)|が必要|中)|問い合わせ`);
 /** 無いことを言う述語 */
 const ABSENT_RE = /ない|無い|なし|無し|なく|無く|ません|不可|NG|非対応|未対応|禁止|ご遠慮|対象外|(?<!\d)0か月|ゼロ/;
 /** 否定の形だが有無を言っていない言い回し（「〜だけでなく」「問題ない」「手間が少ない」「飼ってもかまいません」） */
 const NOT_NEGATION_RE =
   /だけで(?:は)?なく|だけじゃなく|のみならず|(?:問題|心配|間違い)(?:は|が)?(?:ない|なく|ありません)|少な(?:い|く)|(?:かま|構)いません/g;
-/** 文の述語の終わり（語の極性はここまでを見る）。理由・逆接の接続（ので・から・けど）でも区切る */
-const PREDICATE_END_RE = /ます|ません|です|でした|ので|から|けれど|けど|ため|[。！？!?\n]/g;
+/**
+ * 文の述語の終わり（語の極性はここまでを見る）。理由・逆接の接続（ので・から・けど）でも区切る。
+ * 「から」は述語に続く理由の形（あるから・ないから）だけで、「駅から」「物件情報から」では区切らない
+ */
+const PREDICATE_END_RE = /ます|ません|です|でした|ので|(?<=[るいただす])から|けれど|けど|ため|[。！？!?\n]/g;
 /** 有無を言う語と数値（並べた語のあいだにこれがあれば、そこで極性が決まる。無ければ後ろの述語を共有する） */
 const PREDICATE_WORD_RE = /不可|可|あり|ある|ない|なし|無し|なく|付き|つき|OK|NG|対応|\d/;
 

@@ -8,12 +8,12 @@
  * 流れ: 質問＋対象物件 → LLM（tool use）→ zod で検証 → 禁止トピックなら引き継ぎ → verifyAnswer → 回答文
  */
 import { z } from 'zod';
-import { formatJstDay, toJst } from '../../domain/businessHours';
+import { formatJstDay, jstYear, toJst } from '../../domain/businessHours';
 import { formatDate, formatManYen, formatYen } from '../../domain/labels';
 import { FORBIDDEN_TOPICS, type ForbiddenTopic, type Property } from '../../domain/types';
-import { verifyAnswer, type VerifyIssue } from '../../domain/verify';
+import { saysNotInRecord, verifyAnswer, type VerifyIssue } from '../../domain/verify';
 import { LlmToolCallError, type LlmClient, type LlmToolDef, type Logger } from './client';
-import { escapeForUserMessage } from './extract';
+import { describeZodError, escapeForUserMessage } from './extract';
 import { MODEL_SMART } from './models';
 import { costUsd, EMPTY_USAGE, type TokenUsage } from './pricing';
 
@@ -92,8 +92,6 @@ export function buildAnswerTool(): LlmToolDef {
 }
 
 // ---------- 物件レコードの表示（ユーザーメッセージと出力例で同じ書式にする） ----------
-
-const jstYear = (now: Date): number => Number(toJst(now).date.slice(0, 4));
 
 /** 物件名・駅名・所在地に紛れた山括弧と改行を落とす（区切りのタグを書き込めないように） */
 const plain = (s: string): string => s.replace(/\s+/g, ' ').replace(/[<>]/g, '').trim();
@@ -350,10 +348,6 @@ const ToolInputSchema = z.object({
   forbiddenTopic: z.enum(FORBIDDEN_TOPICS).nullable(),
 });
 
-function describeZodError(error: z.ZodError): string {
-  return error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join(' / ');
-}
-
 // ---------- 本体 ----------
 
 /**
@@ -439,11 +433,13 @@ export async function generateAnswer(params: GenerateAnswerParams): Promise<Gene
     };
   }
 
+  // 「記載はありません」と書いたのに needsStaff を付け忘れたときも、引き継ぎ文とメモを付けて行き止まりにしない
+  const handOff = needsStaff || saysNotInRecord(answer);
   return {
     ...base,
     text: answer.trim(),
-    handoff: needsStaff ? { topic: null } : null,
+    handoff: handOff ? { topic: null } : null,
     verification: 'ok',
-    record: { status: needsStaff ? 'needsStaff' : 'answered', model: call.model, rawAnswer: answer, needsStaff, forbiddenTopic, issues: [] },
+    record: { status: handOff ? 'needsStaff' : 'answered', model: call.model, rawAnswer: answer, needsStaff, forbiddenTopic, issues: [] },
   };
 }

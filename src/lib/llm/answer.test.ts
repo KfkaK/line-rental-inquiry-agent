@@ -115,6 +115,15 @@ describe('generateAnswer: 回答の分岐', () => {
     expect(outcome.record.needsStaff).toBe(true);
   });
 
+  it('needsStaff: モデルが付け忘れても、回答文が「記載はありません」と言っていれば引き継ぐ', async () => {
+    const { outcome } = await run(ok({ answer: '物件情報に駐輪場の記載はありません。', needsStaff: false }), {
+      question: '駐輪場はありますか？',
+    });
+    expect(outcome.text).toBe('物件情報に駐輪場の記載はありません。');
+    expect(outcome.handoff).toEqual({ topic: null });
+    expect(outcome.record).toMatchObject({ status: 'needsStaff', needsStaff: false });
+  });
+
   it('forbidden: 禁止トピックは回答文を送らず、topic つきで引き継ぐ（回答文が入っていても捨てる）', async () => {
     for (const topic of FORBIDDEN_TOPICS) {
       const { outcome, log } = await run(ok({ answer: '空いていますよ。', needsStaff: true, forbiddenTopic: topic }));

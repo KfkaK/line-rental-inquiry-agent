@@ -31,6 +31,11 @@ export function toJst(instant: Date): JstParts {
   };
 }
 
+/** JST の年（築年数の計算に使う） */
+export function jstYear(instant: Date): number {
+  return Number(toJst(instant).date.slice(0, 4));
+}
+
 /** JST の日付と時刻 → その瞬間 */
 export function fromJst(date: string, time: string): Date {
   const [y, m, d] = date.split('-').map(Number);

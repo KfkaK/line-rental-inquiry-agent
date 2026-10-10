@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { makeProperty } from './fixtures';
 import { TAGS, type Property } from './types';
-import { ANSWER_MAX_CHARS, readNumbers, verifyAnswer, type VerifyTarget } from './verify';
+import { ANSWER_MAX_CHARS } from './rules';
+import { readNumbers, saysNotInRecord, verifyAnswer, type VerifyTarget } from './verify';
 
 /** JST 2026-10-10。築年数は 2026 − 築年で数える */
 const NOW = new Date('2026-10-10T03:00:00Z');
@@ -364,11 +365,14 @@ describe('落とす（レコードに無い記述）', () => {
       { name: '単位の無い数値（81000）', text: '家賃は81000です。', issue: { kind: 'number', token: '81000' } },
       { name: '24時間', text: '24時間対応です。', issue: { kind: 'number', token: '24' } },
       { name: '400m', text: '駅まで400mです。', issue: { kind: 'number', token: '400' } },
-      { name: '漢数字の徒歩（五分）', text: '徒歩五分です。', issue: { kind: 'number', token: '五分' } },
-      { name: '漢数字の家賃（八万円）', text: '家賃は八万円です。', issue: { kind: 'number', token: expect.stringContaining('八万') } },
-      { name: '漢数字の階（二階）', text: '二階のお部屋です。', issue: { kind: 'number', token: '二階' } },
+      // 単位つきの漢数字はヒアリングと同じ正規化で算用数字にしてから照合する（徒歩10分・家賃81,000円の物件）
+      { name: '漢数字の徒歩（五分）', text: '徒歩五分です。', issue: { kind: 'number', token: '5分' } },
+      { name: '漢数字の家賃（八万円）', text: '家賃は八万円です。', issue: { kind: 'number', token: '8万円' } },
     ];
     it.each(cases)('$name', expectIssue);
+    it('漢数字でもレコードどおりなら通す（二階 → 2階）', () => {
+      expectOk({ name: '二階', text: '二階のお部屋です。' });
+    });
   });
 
   describe('質問の数値の繰り返しは比較の形のときだけ', () => {
@@ -780,5 +784,60 @@ describe('言い換えでも食い違いを落とす', () => {
       { name: '浴室とトイレは別です', text: '浴室とトイレは別です。', issue: { kind: 'feature', feature: 'バストイレ別', claimed: 'present' } },
     ];
     it.each(cases.map((c) => ({ ...c, targets: [at(TSUBAKI)] })))('$name', expectIssue);
+  });
+});
+
+describe('質問に出た駅・区・間取りは否定か記載なしの文脈でだけ繰り返してよい', () => {
+  it.each<IssueCase>([
+    { name: '間取りの肯定', question: '1番目は1LDKですか？', text: 'はい、1LDKです。', issue: { kind: 'layout', layout: '1LDK' } },
+    { name: '駅の肯定', question: '恵比寿駅が最寄りですか？', text: '恵比寿駅が最寄りです。', issue: { kind: 'station', station: '恵比寿' } },
+    { name: '区の肯定', question: '港区の物件ですか？', text: '港区の物件です。', issue: { kind: 'ward', ward: '港区' } },
+  ])('$name', expectIssue);
+  it.each<Case>([
+    { name: '間取りの否定', question: '1番目は1LDKですか？', text: '1LDKではなく1DKです。' },
+    { name: '駅の否定', question: '恵比寿駅が最寄りですか？', text: '恵比寿駅は最寄りではありません。最寄りは中目黒駅です。' },
+    { name: '駅の記載なし', question: '恵比寿駅まで歩ける？', text: '恵比寿駅までの徒歩分は物件情報に記載がありません。' },
+  ])('$name', expectOk);
+});
+
+describe('「ご確認ください」「確認済み」は記載なしの文脈として扱わない', () => {
+  it.each<IssueCase>([
+    { name: 'ご確認いただけます', text: 'オートロックがあることをご確認いただけます。', issue: { kind: 'feature', feature: 'オートロック', claimed: 'present' } },
+    { name: '確認済み', text: 'エレベーター付きを確認済みです。', issue: { kind: 'unknownFacility', word: 'エレベーター' } },
+    { name: 'ご確認ください', text: 'エレベーターがあることはご確認ください。', issue: { kind: 'unknownFacility', word: 'エレベーター' } },
+  ])('$name', expectIssue);
+  it('「確認できません」は記載なしとして通す', () => {
+    expectOk({ name: '確認できません', text: 'エレベーターの有無は物件情報から確認できません。' });
+  });
+});
+
+describe('タグ辞書の同義語でも照合する', () => {
+  it.each<IssueCase>([
+    { name: 'クーラー', text: 'クーラー付きです。', issue: { kind: 'feature', feature: 'エアコン', claimed: 'present' } },
+    { name: 'BT別', text: 'BT別です。', issue: { kind: 'feature', feature: 'バストイレ別', claimed: 'present' } },
+    { name: 'セパレート', text: 'お風呂はセパレートです。', issue: { kind: 'feature', feature: 'バストイレ別', claimed: 'present' } },
+    { name: '角住戸', text: '角住戸です。', issue: { kind: 'feature', feature: '角部屋', claimed: 'present' } },
+  ])('$name', (c) => expectIssue({ ...c, targets: [at(TSUBAKI)] }));
+  it('ゼロゼロ（敷金・礼金がある物件で落ち、両方 0 の物件で通る）', () => {
+    expectIssue({ name: 'ゼロゼロ', text: 'ゼロゼロ物件です。', issue: { kind: 'feature', feature: '敷金・礼金', claimed: 'absent' } });
+    expectOk({ name: 'ゼロゼロ', text: 'ゼロゼロ物件です。', targets: [at(TSUBAKI)] });
+  });
+});
+
+describe('物件名・住所は回答文と同じ正規化をかけて取り除く', () => {
+  it('全角数字の物件名', () => {
+    const p = makeProperty({ name: 'コーポ第２高円寺', address: '杉並区高円寺南１-２', ward: '杉並区', access: [{ station: '高円寺', walkMin: 5 }], rent: 70000, managementFee: 3000 });
+    expectOk({ name: '全角', text: 'コーポ第2高円寺（杉並区高円寺南1-2）の家賃は70,000円です。', targets: [at(p)] });
+  });
+});
+
+describe('saysNotInRecord', () => {
+  it.each([
+    ['物件情報に駐輪場の記載はありません。', true],
+    ['エレベーターの有無は分かりかねます。', true],
+    ['駐輪場があります。', false],
+    ['オートロックはありません。', false],
+  ])('%s → %s', (text, expected) => {
+    expect(saysNotInRecord(text)).toBe(expected);
   });
 });

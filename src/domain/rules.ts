@@ -93,6 +93,13 @@ export const DEFAULT_CLOSED_WEEKDAYS = [3];
 /** 日付と営業時間はすべて JST で解釈する（Vercel は UTC で動く） */
 export const TIMEZONE_OFFSET_MINUTES = 9 * 60;
 
+// ---------- 回答生成と根拠検証（DESIGN.md 4.3） ----------
+
+/** 回答文の字数の上限（プロンプトでは 300 字以内と指示し、超えたら根拠検証で引き継ぎに倒す。LINE のテキストは 5,000 字まで） */
+export const ANSWER_MAX_CHARS = 800;
+/** 面積（㎡）の照合で同じ値とみなす差。レコードは小数1桁なので、表記の丸めだけを許す */
+export const AREA_MATCH_TOLERANCE_SQM = 0.051;
+
 // ---------- 乱用対策・費用（DESIGN.md 4.4） ----------
 
 /** 1ユーザーあたりの発話数の上限（1分間） */
