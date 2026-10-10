@@ -250,22 +250,23 @@ export function createSupabaseRepositories(client: SupabaseClient = createServic
         return rows.map(rowToMessage);
       },
 
-      async countUserMessagesSince(lineUserId, since) {
+      async countExtractedTurnsSince(lineUserId, since) {
         // messages に line_user_id は持たせない（個人情報の重複を避ける）。会話は 1 ユーザー 1 件なので 2 段で引く
         const { data: conversation, error: conversationError } = await client
           .from('conversations')
           .select('id')
           .eq('line_user_id', lineUserId)
           .maybeSingle();
-        if (conversationError) throw fail('messages.countUserMessagesSince', conversationError);
+        if (conversationError) throw fail('messages.countExtractedTurnsSince', conversationError);
         if (!conversation) return 0;
         const { count, error } = await client
           .from('messages')
           .select('id', { count: 'exact', head: true })
           .eq('conversation_id', (conversation as { id: string }).id)
-          .eq('role', 'user')
+          .eq('role', 'ai')
+          .not('intent', 'is', null)
           .gte('created_at', since.toISOString());
-        if (error) throw fail('messages.countUserMessagesSince', error);
+        if (error) throw fail('messages.countExtractedTurnsSince', error);
         return count ?? 0;
       },
 

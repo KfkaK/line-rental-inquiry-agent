@@ -318,25 +318,27 @@ describe('messages', () => {
     expect((await repos.conversations.getById(conversation.id))?.updatedAt).toBe('2026-10-07T01:00:00.000Z');
   });
 
-  it('countUserMessagesSince は そのユーザーの role=user だけを、since 以降（含む）で数える', async () => {
+  it('countExtractedTurnsSince は そのユーザーの、条件抽出を通した AI の返信（intent あり）だけを since 以降（含む）で数える', async () => {
     const { repos, advance, at, conversation } = await withConversation('U1');
     await repos.lineUsers.upsert({ lineUserId: 'U2' });
     const other = await repos.conversations.getOrCreate('U2');
 
-    await repos.messages.insert({ conversationId: conversation.id, role: 'user', text: '古い' });
+    await repos.messages.insert({ conversationId: conversation.id, role: 'ai', text: '古い', intent: 'conditions' });
     advance(30_000);
     const since = at();
-    await repos.messages.insert({ conversationId: conversation.id, role: 'user', text: 'ちょうど' });
-    await repos.messages.insert({ conversationId: conversation.id, role: 'ai', text: 'AI の返信' });
+    await repos.messages.insert({ conversationId: conversation.id, role: 'ai', text: 'ちょうど', intent: 'propertyQuestion' });
+    // ボタン・友だち追加の返信（intent なし）・利用者と担当者の発言は数えない
+    await repos.messages.insert({ conversationId: conversation.id, role: 'ai', text: 'ボタンへの返信' });
+    await repos.messages.insert({ conversationId: conversation.id, role: 'user', text: '[ボタン] more' });
     await repos.messages.insert({ conversationId: conversation.id, role: 'staff', text: '担当者' });
-    await repos.messages.insert({ conversationId: other.id, role: 'user', text: '別のユーザー' });
+    await repos.messages.insert({ conversationId: other.id, role: 'ai', text: '別のユーザー', intent: 'conditions' });
     advance(1000);
-    await repos.messages.insert({ conversationId: conversation.id, role: 'user', text: '新しい' });
+    await repos.messages.insert({ conversationId: conversation.id, role: 'ai', text: '新しい', intent: 'offTopic' });
 
-    expect(await repos.messages.countUserMessagesSince('U1', since)).toBe(2);
-    expect(await repos.messages.countUserMessagesSince('U1', new Date(T0))).toBe(3);
-    expect(await repos.messages.countUserMessagesSince('U2', since)).toBe(1);
-    expect(await repos.messages.countUserMessagesSince('U-none', since)).toBe(0);
+    expect(await repos.messages.countExtractedTurnsSince('U1', since)).toBe(2);
+    expect(await repos.messages.countExtractedTurnsSince('U1', new Date(T0))).toBe(3);
+    expect(await repos.messages.countExtractedTurnsSince('U2', since)).toBe(1);
+    expect(await repos.messages.countExtractedTurnsSince('U-none', since)).toBe(0);
   });
 
   it('sumCostSince は since 以降（含む）の全ロールの費用を合計する', async () => {

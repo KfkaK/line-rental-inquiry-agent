@@ -18,6 +18,8 @@ describe('buildPostbackData / parsePostbackData', () => {
     { action: 'relax', ref: { kind: 'slot', key: 'walkMax' }, accept: false },
     { action: 'priority', ref: { kind: 'tag', tag: 'ペット可' } },
     { action: 'priority', ref: { kind: 'slot', key: 'rentMax' } },
+    { action: 'loosen', ref: { kind: 'slot', key: 'rentMax' } },
+    { action: 'loosen', ref: { kind: 'tag', tag: 'オートロック' } },
   ];
 
   it.each(samples)('組み立てて解析すると元に戻る: %j', (data) => {
@@ -77,6 +79,7 @@ describe('parsePostbackData: 不正な入力は null（例外にしない）', (
     ['未知のスロットキー', 'a=priority&k=slot&key=__proto__'],
     ['未知の kind', 'a=priority&k=other&key=area'],
     ['kind とキーの食い違い', 'a=priority&k=slot&tag=ペット可'],
+    ['loosen の参照なし', 'a=loosen'],
     ['300 文字超', `a=detail&id=P001&junk=${'x'.repeat(300)}`],
   ])('%s', (_name, input) => {
     expect(parsePostbackData(input)).toBeNull();
