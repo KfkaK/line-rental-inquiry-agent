@@ -264,6 +264,8 @@ NOTIFY_FROM_EMAIL          # 任意。差出人
 APP_BASE_URL               # 任意。通知メールの管理画面リンクの起点（既定は Vercel の本番 URL）
 DAILY_COST_LIMIT_USD
 ADMIN_PREVIEW              # 開発環境だけ。1 で管理画面をインメモリのデモデータで開く
+DEMO_MODE                  # 公開デモだけ。1 で、あいさつと引き継ぎ・仮受付の文に「デモのため担当者からの連絡はありません」を足し、Cron がデモ会話を作り直す
+CRON_SECRET                # Vercel Cron（/api/cron/daily）の認証。未設定なら Cron は何もしない（500）
 ```
 
 一覧の正は `src/lib/env.ts` の `ENV_NAMES`。

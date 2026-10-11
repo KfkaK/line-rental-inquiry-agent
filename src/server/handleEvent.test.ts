@@ -42,7 +42,9 @@ const SEARCH: ExtractionResult = ex({
   ],
 });
 
-function setup(options: { now?: Date; properties?: Property[]; extractions?: ExtractionResult[]; dailyCostLimitUsd?: number } = {}) {
+function setup(
+  options: { now?: Date; properties?: Property[]; extractions?: ExtractionResult[]; dailyCostLimitUsd?: number; demoMode?: boolean } = {},
+) {
   let now = (options.now ?? NOON).getTime();
   const clock = () => new Date(now);
   const properties = options.properties ?? Array.from({ length: 7 }, (_, i) => makeProperty({ id: `P${i + 1}`, rent: 70000 + i * 1000 }));
@@ -69,6 +71,8 @@ function setup(options: { now?: Date; properties?: Property[]; extractions?: Ext
     notifier,
     clock,
     dailyCostLimitUsd: options.dailyCostLimitUsd ?? 5,
+    // 省略は undefined のまま渡す（Deps.demoMode は省略可）
+    ...(options.demoMode === undefined ? {} : { demoMode: options.demoMode }),
   };
   return {
     deps,
@@ -326,6 +330,106 @@ describe('handleEvent', () => {
     expect(conv.handoffNotes.map((n) => [n.text, n.propertyIds])).toEqual([['1番目は駐輪場ある？', ['P1']]]);
     const log = await t.repos.messages.listByConversation(conv.id);
     expect(log.at(-1)?.verification).toBe('replaced');
+  });
+
+  describe('営業時間外の案内（友だち追加のあいさつと重ねない）', () => {
+    const OUTSIDE = '営業時間外';
+
+    it('友だち追加のあいさつを出した会話の最初の発話には、あいさつと同じ案内を重ねない', async () => {
+      const t = setup({ now: NIGHT, extractions: [SEARCH] });
+      await handleEvent(followEvent(), t.deps);
+      expect(textsOf(t.lastReply())[0]).toContain(OUTSIDE);
+      await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+      expect(textsOf(t.lastReply()).filter((text) => text.includes(OUTSIDE))).toEqual([]);
+      expect(textsOf(t.lastReply())[0]).toContain('件あります');
+    });
+
+    it('ブロック解除で友だち追加し直したあいさつの直後も同じ', async () => {
+      const t = setup({ now: NIGHT, extractions: [SEARCH, SEARCH] });
+      await handleEvent(followEvent(), t.deps);
+      await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+      await handleEvent(followEvent(), t.deps);
+      expect(textsOf(t.lastReply())[0]).toContain(OUTSIDE);
+      await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+      expect(textsOf(t.lastReply()).filter((text) => text.includes(OUTSIDE))).toEqual([]);
+    });
+
+    it('友だち追加を経ずに話しかけられた最初の発話には案内する。2回目以降は繰り返さない', async () => {
+      const t = setup({ now: NIGHT, extractions: [ex({ intent: 'offTopic' }), ex({ intent: 'offTopic' })] });
+      await handleEvent(textEvent('こんにちは'), t.deps);
+      expect(textsOf(t.lastReply())[0]).toContain(OUTSIDE);
+      // 最初の返事で案内したので、条件がまだ無くても次の返事には重ねない
+      await handleEvent(textEvent('はい'), t.deps);
+      expect(textsOf(t.lastReply()).filter((text) => text.includes(OUTSIDE))).toEqual([]);
+    });
+
+    it('営業時間内に友だち追加し（あいさつに案内なし）、時間外に最初に話しかけられたら案内する', async () => {
+      const t = setup({ now: NOON, extractions: [SEARCH] });
+      await handleEvent(followEvent(), t.deps);
+      expect(textsOf(t.lastReply())[0]).not.toContain(OUTSIDE);
+      t.advance(10 * 60 * 60 * 1000); // 木曜 22:00（営業時間外）
+      await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+      expect(textsOf(t.lastReply())[0]).toContain(OUTSIDE);
+    });
+
+    it('営業時間内は、あいさつの有無にかかわらず案内しない', async () => {
+      const t = setup({ now: NOON, extractions: [SEARCH] });
+      await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+      expect(textsOf(t.lastReply()).filter((text) => text.includes(OUTSIDE))).toEqual([]);
+    });
+  });
+
+  describe('公開デモ（demoMode）', () => {
+    const NO_CONTACT = '（デモのため、実際の連絡はありません）';
+
+    it('友だち追加のあいさつにデモである旨を足す。demoMode を省略・false にすると足さない', async () => {
+      const demo = setup({ now: NIGHT, demoMode: true });
+      await handleEvent(followEvent(), demo.deps);
+      expect(textsOf(demo.lastReply())[0]).toContain('これはデモです。物件は架空のデータで、担当者からの連絡はありません。');
+      expect(textsOf(demo.lastReply())[0]).toContain('AI が一次対応');
+
+      for (const options of [{}, { demoMode: false }]) {
+        const normal = setup({ now: NIGHT, ...options });
+        await handleEvent(followEvent(), normal.deps);
+        expect(textsOf(normal.lastReply())[0]).not.toContain('デモ');
+      }
+    });
+
+    it('禁止トピックの引き継ぎ文に「実際の連絡はありません」を足し、メモは通常どおり残す', async () => {
+      const t = setup({ now: NIGHT, demoMode: true, extractions: [ex({ intent: 'propertyQuestion', forbiddenTopic: 'safety' })] });
+      await handleEvent(textEvent('このへん治安どう？'), t.deps);
+      expect(textsOf(t.lastReply()).join('')).toContain(`10月8日(木)に担当者からご連絡します。${NO_CONTACT}`);
+      expect((await t.conversation()).handoffNotes.map((n) => n.topic)).toEqual(['safety']);
+    });
+
+    it('回答生成が回した引き継ぎ（記載なし・差し替え・失敗）の文にも足す', async () => {
+      const t = setup({ now: NIGHT, demoMode: true, extractions: [SEARCH, ex({ intent: 'propertyQuestion', targetPositions: [1] })] });
+      t.answer.mockResolvedValueOnce({ text: '駐車場の記載はありません。', handoff: { topic: null }, verification: 'ok', latencyMs: 5, costUsd: 0.002 });
+      await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+      await handleEvent(textEvent('1番目は駐車場ある？'), t.deps);
+      const [reply] = textsOf(t.lastReply());
+      expect(reply.startsWith('駐車場の記載はありません。\n\n')).toBe(true);
+      expect(reply).toContain(NO_CONTACT);
+
+      const failed = setup({ demoMode: true, extractions: [SEARCH, ex({ intent: 'propertyQuestion', targetPositions: [1] })] });
+      failed.answer.mockRejectedValueOnce(new Error('overloaded'));
+      await handleEvent(textEvent('渋谷で9万まで'), failed.deps);
+      await handleEvent(textEvent('1番目は駐輪場ある？'), failed.deps);
+      expect(textsOf(failed.lastReply())[0]).toContain(`営業時間内に担当者からご連絡します。${NO_CONTACT}`);
+    });
+
+    it('内見の仮受付の文にも足すが、「まだ予約は確定していません」は保つ。仮受付と通知は通常どおり', async () => {
+      const t = setup({ now: NIGHT, demoMode: true, extractions: [SEARCH] });
+      await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+      await handleEvent(postbackEvent(buildPostbackData({ action: 'viewing', propertyId: 'P2' })), t.deps);
+      await handleEvent(postbackEvent(buildPostbackData({ action: 'viewingDay', date: '2026-10-08' })), t.deps);
+      await handleEvent(postbackEvent(buildPostbackData({ action: 'viewingDay', date: '2026-10-09' })), t.deps);
+      const [reply] = textsOf(t.lastReply());
+      expect(reply).toContain('まだ予約は確定していません');
+      expect(reply).toContain(`担当者から確定のご連絡をします。${NO_CONTACT}`);
+      expect(await t.repos.viewingRequests.listByStatus('pending')).toHaveLength(1);
+      expect(t.notifier.viewingRequested).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('担当者への通知（引き継ぎメモ）', () => {
