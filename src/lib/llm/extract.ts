@@ -203,6 +203,34 @@ export const EXTRACTION_EXAMPLES: readonly ExtractionExample[] = [
     },
   },
   {
+    state: 'スロットなし',
+    utterance: '中野で7万まで。バストイレ別と2階以上がほしくて、オートロックはあればいいかな',
+    output: {
+      intent: 'conditions',
+      ops: [
+        { op: 'set', key: 'area', stations: ['中野'] },
+        { op: 'set', key: 'rentMax', rentMax: EXAMPLE_RENT },
+        { op: 'addTag', tag: 'バストイレ別' },
+        { op: 'set', key: 'floorMin', floorMin: 2 },
+        { op: 'addTag', tag: 'オートロック', priority: 'nice' },
+      ],
+      targetPositions: [],
+      viewingTimes: [],
+      forbiddenTopic: null,
+    },
+  },
+  {
+    state: `area=中野(${DEFAULT_PRIORITY.area})、rentMax=${EXAMPLE_RENT}(${DEFAULT_PRIORITY.rentMax})、floorMin=2(want)`,
+    utterance: '3階以上は譲れません',
+    output: {
+      intent: 'conditions',
+      ops: [{ op: 'set', key: 'floorMin', floorMin: 3, priority: 'must' }],
+      targetPositions: [],
+      viewingTimes: [],
+      forbiddenTopic: null,
+    },
+  },
+  {
     state: `rentMax=${EXAMPLE_RENT}`,
     utterance: 'もう少し安いのは？',
     output: {
@@ -341,6 +369,8 @@ export const EXTRACTION_RULES_PROMPT = `# intent（発話の主目的）
 - nice（あれば嬉しい）: 「どっちでもいい」「あれば」「なくてもいい」「なくても大丈夫」「気にしない」
 - 優先度の変更の発話も条件の変更と同じ経路で ops にする。現在のスロットに既にある条件なら setPriority / setTagPriority、まだ無い条件なら set / addTag に priority を付ける
 - 「〜はなくてもいい」は優先度を nice に下げる（setPriority / setTagPriority）。外す（unset / removeTag）のは「いらない」「外して」「関係ない」のとき
+- 手がかりの無い条件には priority を書かない。「〜がほしい」「〜がいい」「〜希望」は手がかりではない。同じ発話に「できれば」「あればいい」の条件があっても、その対比だけを理由に、ほかの条件を must にしない（must は絞り込みに使うので、手がかりの無い must は候補を0件にしうる）
+- 値と優先度を一緒に言われたとき（「3階以上は譲れない」「徒歩10分以内は絶対」）は、set に新しい値と priority の両方を書く。setPriority で優先度だけを変えて値を元のままにしない
 
 # 提示済み物件の参照（targetPositions）
 - 「2番目の」「2番の」「2つ目」→ [2]。「1番目と3番目」→ [1, 3]。「最初の」→ [1]、「最後の」→ 最後の表示番号
