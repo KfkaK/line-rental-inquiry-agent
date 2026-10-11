@@ -6,7 +6,9 @@ import { Suspense } from 'react';
 import { optionalEnv } from '@/lib/env';
 import { isAdminPreview } from '@/server/admin/previewFlag';
 import { getAdminUser } from '@/server/admin/session';
+import { publicDemoViewer } from '@/server/demoViewer';
 import { logout } from '../actions';
+import { DemoViewerNotice } from '../_components/DemoViewerNotice';
 import { LoginForm } from '../_components/LoginForm';
 import { cardClass, hintClass } from '../_components/ui';
 
@@ -69,9 +71,14 @@ async function LoginContent() {
     );
   }
 
+  // 公開デモ（DEMO_MODE=1）で閲覧用アカウントの資格情報が環境変数にあるときだけ、フォームの下に載せる（毎朝 Cron がこのパスワードに戻す）
+  const demoViewer = publicDemoViewer();
   return (
-    <div className={cardClass}>
-      <LoginForm />
-    </div>
+    <>
+      <div className={cardClass}>
+        <LoginForm />
+      </div>
+      {demoViewer && <DemoViewerNotice email={demoViewer.email} password={demoViewer.password} />}
+    </>
   );
 }

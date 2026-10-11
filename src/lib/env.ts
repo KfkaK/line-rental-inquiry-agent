@@ -26,6 +26,10 @@ export const ENV_NAMES = [
   'DEMO_MODE',
   /** Vercel Cron の認証。設定すると Vercel が `Authorization: Bearer <値>` を付けて /api/cron/daily を呼ぶ。未設定なら Cron は何もしない（500） */
   'CRON_SECRET',
+  /** 公開デモの閲覧用アカウント（role = viewer）のメールアドレス。DEMO_MODE=1 で DEMO_VIEWER_PASSWORD と両方あるときだけ、ログイン画面に載せ、毎朝の Cron でパスワードをこの値に戻す */
+  'DEMO_VIEWER_EMAIL',
+  /** 同・パスワード（8 文字以上）。公開する値なので、本物のパスワードの使い回しはしない */
+  'DEMO_VIEWER_PASSWORD',
 ] as const;
 export type EnvName = (typeof ENV_NAMES)[number];
 

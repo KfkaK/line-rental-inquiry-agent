@@ -1,5 +1,5 @@
 /**
- * 公開デモの閲覧用アカウントに見せる「デモ会話」の種まきと、日次の保守（会話ログの90日削除）。
+ * 公開デモの閲覧用アカウントに見せる「デモ会話」の種まきと、日次の保守（会話ログの90日削除・閲覧用アカウントのパスワードを戻す）。
  *
  * - 閲覧用（viewer）は is_demo の会話だけを読める（supabase/migrations/20261011000000_admin_roles.sql）。
  *   プレビュー用のデモデータ `buildPreviewSeed`（src/server/admin/previewSeed.ts）を、本番の Supabase に is_demo = true で書く
@@ -12,11 +12,12 @@
  * Supabase にトランザクションは無いので、種を先に組み立ててから「消す → 入れる」を続けて行う（途中で失敗しても入れ直せば戻る）。
  */
 import { createHash } from 'node:crypto';
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient, User } from '@supabase/supabase-js';
 import { MESSAGE_RETENTION_DAYS } from '@/domain/rules';
 import { createSupabaseRepositories, DbError, type MemorySeed } from '@/lib/db';
 import { newMessageToRow, type ConversationDbRow, type ViewingRequestDbRow } from '@/lib/db/mappers';
 import { buildPreviewSeed } from './admin/previewSeed';
+import type { DemoViewerCredentials } from './demoViewer';
 
 /** デモ用 line_users の line_user_id の接頭辞（previewSeed の `demo-…`）。本物の LINE ユーザー ID は U から始まる */
 export const DEMO_LINE_USER_PREFIX = 'demo-';
@@ -217,6 +218,62 @@ export async function purgeOldMessages(client: SupabaseClient): Promise<number> 
   return Number(data ?? 0);
 }
 
+// ---------- 閲覧用アカウントのパスワードを戻す ----------
+
+/** 管理画面の閲覧用の役割（app_metadata.role。supabase/migrations/20261011000000_admin_roles.sql） */
+const VIEWER_ROLE = 'viewer';
+
+/** 閲覧用のパスワードの最短の長さ。これより短い値は、アカウントに書かずに error にする */
+export const DEMO_VIEWER_MIN_PASSWORD_LENGTH = 8;
+
+/** Supabase Auth の Admin API の一覧のページサイズ（scripts/admin-user.ts と同じ） */
+const AUTH_LIST_PER_PAGE = 1000;
+
+/**
+ * 閲覧用アカウントのパスワードを環境変数の値に戻す。公開デモでは資格情報を README とログイン画面に載せるので、
+ * ログインした誰かがパスワードを変えて、ほかの人を締め出せてしまう。毎朝の Cron がこの関数で上書きして塞ぐ。
+ *
+ * 安全のため、次のときは**何も変えずに**投げる:
+ *   - パスワードが 8 文字未満
+ *   - メールアドレス（大文字小文字は区別しない）のアカウントが無い
+ *   - 見つかったアカウントの `app_metadata.role` が `viewer` ではない（担当者 staff のパスワードを公開の値に戻す事故を防ぐ）
+ * 投げる文・戻り値にパスワードとメールアドレスは含めない（Cron のログと応答に出るため）
+ */
+export async function resetDemoViewerPassword(client: SupabaseClient, credentials: DemoViewerCredentials): Promise<{ restored: true }> {
+  if (credentials.password.length < DEMO_VIEWER_MIN_PASSWORD_LENGTH) {
+    throw new Error(`DEMO_VIEWER_PASSWORD が ${DEMO_VIEWER_MIN_PASSWORD_LENGTH} 文字未満なので、閲覧用アカウントのパスワードは変えていません`);
+  }
+  const wanted = credentials.email.trim().toLowerCase();
+  const user = (await listAllAuthUsers(client)).find((u) => u.email?.trim().toLowerCase() === wanted);
+  if (!user) {
+    throw new Error(
+      '環境変数 DEMO_VIEWER_EMAIL のメールアドレスのアカウントが Supabase にありません。npm run admin:user -- --email=<そのメールアドレス> --role=viewer で作ってください',
+    );
+  }
+  const role: unknown = user.app_metadata?.role;
+  if (role !== VIEWER_ROLE) {
+    throw new Error(
+      `環境変数 DEMO_VIEWER_EMAIL のアカウントの役割が ${VIEWER_ROLE} ではない（${typeof role === 'string' ? role : '役割なし'}）ので、パスワードは変えていません。` +
+        '担当者のアカウントを閲覧用に使わないでください',
+    );
+  }
+  const { error } = await client.auth.admin.updateUserById(user.id, { password: credentials.password });
+  // 利用者側の更新と同じく、同じパスワードへの更新を弾く設定でも「もう戻っている」ので成功として扱う
+  if (error && error.code !== 'same_password') throw new Error(`閲覧用アカウントのパスワードを戻せません: ${error.message}`);
+  return { restored: true };
+}
+
+/** Auth のアカウントを全件取る（scripts/admin-user.ts の listAllUsers と同じ取り方） */
+async function listAllAuthUsers(client: SupabaseClient): Promise<User[]> {
+  const users: User[] = [];
+  for (let page = 1; ; page++) {
+    const { data, error } = await client.auth.admin.listUsers({ page, perPage: AUTH_LIST_PER_PAGE });
+    if (error) throw new Error(`アカウントの一覧を取れません: ${error.message}`);
+    users.push(...data.users);
+    if (data.users.length < AUTH_LIST_PER_PAGE) return users;
+  }
+}
+
 // ---------- 日次の処理（Cron） ----------
 
 export type StepResult<T> = { status: 'ok'; value: T } | { status: 'skipped'; reason: string } | { status: 'error'; message: string };
@@ -226,18 +283,31 @@ export interface DailyJobResult {
   ok: boolean;
   demo: StepResult<DemoRefreshResult>;
   purge: StepResult<{ deleted: number }>;
+  /** 閲覧用アカウントのパスワードを戻した（`restored`）。パスワード・メールアドレスは含めない */
+  viewer: StepResult<{ restored: true }>;
 }
 
 /**
- * 日次の処理。デモ会話の作り直し（`demo` が false ならスキップ）と、会話ログの90日削除。
- * 2つは独立していて、片方が失敗してももう片方は行う（個人情報の削除をデモの失敗で止めない）
+ * 日次の処理。デモ会話の作り直し（`demo` が false ならスキップ）・閲覧用アカウントのパスワードを戻す
+ * （`demo` が true で `viewer` の資格情報があるときだけ）・会話ログの90日削除。
+ * 3つは独立していて、どれかが失敗しても残りは行う（個人情報の削除をデモの失敗で止めない）
  */
-export async function runDailyJob(client: SupabaseClient, now: Date, options: { demo: boolean }): Promise<DailyJobResult> {
+export async function runDailyJob(
+  client: SupabaseClient,
+  now: Date,
+  options: { demo: boolean; viewer?: DemoViewerCredentials | null },
+): Promise<DailyJobResult> {
   const demo: StepResult<DemoRefreshResult> = options.demo
     ? await step(() => refreshDemoData(client, now))
     : { status: 'skipped', reason: 'DEMO_MODE が 1 ではないので、デモ会話は作り直しません' };
+  const viewerCredentials = options.viewer;
+  const viewer: StepResult<{ restored: true }> = !options.demo
+    ? { status: 'skipped', reason: 'DEMO_MODE が 1 ではないので、閲覧用アカウントのパスワードは戻しません' }
+    : !viewerCredentials
+      ? { status: 'skipped', reason: 'DEMO_VIEWER_EMAIL と DEMO_VIEWER_PASSWORD の両方が設定されていないので、閲覧用アカウントのパスワードは戻しません' }
+      : await step(() => resetDemoViewerPassword(client, viewerCredentials));
   const purge = await step(async () => ({ deleted: await purgeOldMessages(client) }));
-  return { ok: demo.status !== 'error' && purge.status !== 'error', demo, purge };
+  return { ok: demo.status !== 'error' && viewer.status !== 'error' && purge.status !== 'error', demo, purge, viewer };
 }
 
 async function step<T>(run: () => Promise<T>): Promise<StepResult<T>> {

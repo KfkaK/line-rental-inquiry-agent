@@ -7,7 +7,15 @@ import { MESSAGE_RETENTION_DAYS } from '@/domain/rules';
 import { DbError } from '@/lib/db';
 import { propertyToRow, rowToConversation, rowToMessage, rowToViewingRequest } from '@/lib/db/mappers';
 import { buildPreviewSeed, loadPreviewProperties } from './admin/previewSeed';
-import { buildDemoRows, DEMO_LINE_USER_PREFIX, demoUuid, purgeOldMessages, refreshDemoData, runDailyJob } from './demoSeed';
+import {
+  buildDemoRows,
+  DEMO_LINE_USER_PREFIX,
+  demoUuid,
+  purgeOldMessages,
+  refreshDemoData,
+  resetDemoViewerPassword,
+  runDailyJob,
+} from './demoSeed';
 
 // ---------- マイグレーションの列（insert の列名が実在するかを偽の DB で検査する） ----------
 
@@ -36,6 +44,12 @@ type Row = Record<string, unknown>;
 interface PgError {
   message: string;
   code?: string;
+}
+
+interface FakeAuthUser {
+  id: string;
+  email?: string;
+  app_metadata?: Record<string, unknown>;
 }
 
 /** テーブルごとの外部キー（子 → 親）。on delete cascade は deleteRows が親から子へたどる */
@@ -67,8 +81,12 @@ class FakeDb {
   readonly ops: string[] = [];
   readonly rpcCalls: { name: string; args: unknown }[] = [];
   rpcResult = 3;
-  /** 'insert:messages' のように、失敗させる操作 */
+  /** 'insert:messages' のように、失敗させる操作（Auth は 'auth:listUsers'・'auth:updateUser'） */
   readonly failOn = new Map<string, PgError>();
+  /** Auth のアカウント（Admin API の listUsers・updateUserById が読み書きする） */
+  authUsers: FakeAuthUser[] = [];
+  readonly authListCalls: { page: number; perPage: number }[] = [];
+  readonly authUpdates: { id: string; attributes: Record<string, unknown> }[] = [];
 
   readonly client = {
     from: (table: string) => new FakeQuery(this, table),
@@ -76,6 +94,21 @@ class FakeDb {
       this.rpcCalls.push({ name, args });
       const error = this.failOn.get(`rpc:${name}`);
       return error ? { data: null, error } : { data: this.rpcResult, error: null };
+    },
+    auth: {
+      admin: {
+        listUsers: async ({ page, perPage }: { page: number; perPage: number }) => {
+          this.authListCalls.push({ page, perPage });
+          const error = this.failOn.get('auth:listUsers');
+          if (error) return { data: { users: [] }, error };
+          return { data: { users: this.authUsers.slice((page - 1) * perPage, page * perPage).map((u) => structuredClone(u)) }, error: null };
+        },
+        updateUserById: async (id: string, attributes: Record<string, unknown>) => {
+          this.authUpdates.push({ id, attributes });
+          const error = this.failOn.get('auth:updateUser');
+          return error ? { data: { user: null }, error } : { data: { user: this.authUsers.find((u) => u.id === id) ?? null }, error: null };
+        },
+      },
     },
   } as unknown as SupabaseClient;
 
@@ -243,6 +276,29 @@ function setupDb(options: { withProperties?: boolean } = {}): FakeDb {
   db.tables.messages.push({ id: 'msg-old-demo', conversation_id: 'conv-old-demo', role: 'user', text: '古いデモの発言', created_at: '2026-10-10T00:00:00.000Z' });
   db.tables.viewing_requests.push({ id: 'vr-old-demo', conversation_id: 'conv-old-demo', property_id: properties[0].id, candidate_times: [], status: 'pending' });
   return db;
+}
+
+/** 閲覧用アカウントの資格情報（環境変数 DEMO_VIEWER_EMAIL・DEMO_VIEWER_PASSWORD の値）。テスト用の架空の値 */
+const VIEWER = { email: 'Demo.Viewer@Example.com', password: 'public-demo-pass-123' };
+const VIEWER_ID = 'auth-viewer';
+const STAFF_ID = 'auth-staff';
+
+/** 担当者・閲覧用・別の閲覧用のアカウントがいる Auth。メールアドレスの大文字小文字は環境変数の値と変えてある */
+function setupViewerDb(): FakeDb {
+  const db = setupDb();
+  db.authUsers = [
+    { id: STAFF_ID, email: 'staff@example.com', app_metadata: { role: 'staff' } },
+    { id: VIEWER_ID, email: 'demo.viewer@example.com', app_metadata: { role: 'viewer' } },
+    { id: 'auth-other-viewer', email: 'other.viewer@example.com', app_metadata: { role: 'viewer' } },
+  ];
+  return db;
+}
+
+/** 投げられた文・返り値のどこにも、パスワードとメールアドレスが出ていないこと */
+function expectNoSecrets(value: unknown): void {
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  expect(text).not.toContain(VIEWER.password);
+  expect(text.toLowerCase()).not.toContain(VIEWER.email.toLowerCase());
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -481,6 +537,15 @@ describe('purgeOldMessages / runDailyJob', () => {
     expect(db.tables).toEqual(before);
   });
 
+  it('デモでない環境では、閲覧用の資格情報が渡されても Auth には触れない', async () => {
+    const db = setupViewerDb();
+    const result = await runDailyJob(db.client, NOW, { demo: false, viewer: VIEWER });
+    expect(result.viewer).toEqual({ status: 'skipped', reason: expect.stringContaining('DEMO_MODE') });
+    expect(result.ok).toBe(true);
+    expect(db.authListCalls).toEqual([]);
+    expect(db.authUpdates).toEqual([]);
+  });
+
   it('デモの作り直しが失敗しても90日削除は行い、全体は ok: false', async () => {
     const db = setupDb();
     db.failOn.set('insert:conversations', { code: '23505', message: 'duplicate key' });
@@ -498,5 +563,154 @@ describe('purgeOldMessages / runDailyJob', () => {
     expect(result.ok).toBe(false);
     expect(result.demo.status).toBe('ok');
     expect(result.purge).toEqual({ status: 'error', message: expect.stringContaining('function does not exist') });
+  });
+});
+
+// ---------- 閲覧用アカウントのパスワードを戻す ----------
+
+describe('resetDemoViewerPassword', () => {
+  /** 失敗の理由を取り出す（投げなければテストを落とす） */
+  async function rejection(db: FakeDb, credentials = VIEWER): Promise<string> {
+    const error = await resetDemoViewerPassword(db.client, credentials).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(Error);
+    return (error as Error).message;
+  }
+
+  it('メールアドレスが一致する viewer のパスワードだけを環境変数の値に上書きする（大文字小文字は区別しない）', async () => {
+    const db = setupViewerDb();
+    const result = await resetDemoViewerPassword(db.client, VIEWER);
+    expect(result).toEqual({ restored: true });
+    expect(db.authUpdates).toEqual([{ id: VIEWER_ID, attributes: { password: VIEWER.password } }]);
+    expectNoSecrets(result);
+  });
+
+  it('役割は変えない・消さない（更新するのはパスワードだけ）', async () => {
+    const db = setupViewerDb();
+    await resetDemoViewerPassword(db.client, VIEWER);
+    expect(Object.keys(db.authUpdates[0].attributes)).toEqual(['password']);
+    expect(db.authUsers.map((u) => u.app_metadata?.role)).toEqual(['staff', 'viewer', 'viewer']);
+  });
+
+  it('見つかったアカウントが viewer でなければ、何も変えずに投げる（担当者のパスワードを公開の値に戻さない）', async () => {
+    const db = setupViewerDb();
+    db.authUsers[1] = { id: VIEWER_ID, email: 'demo.viewer@example.com', app_metadata: { role: 'staff' } };
+    const message = await rejection(db);
+    expect(message).toContain('viewer ではない');
+    expect(message).toContain('staff');
+    expect(db.authUpdates).toEqual([]);
+    expectNoSecrets(message);
+  });
+
+  it('役割の無いアカウントも変えずに投げる', async () => {
+    const db = setupViewerDb();
+    db.authUsers[1] = { id: VIEWER_ID, email: 'demo.viewer@example.com' };
+    expect(await rejection(db)).toContain('役割なし');
+    db.authUsers[1] = { id: VIEWER_ID, email: 'demo.viewer@example.com', app_metadata: { role: 'none' } };
+    expect(await rejection(db)).toContain('viewer ではない');
+    expect(db.authUpdates).toEqual([]);
+  });
+
+  it('アカウントが無ければ、何も変えずに投げる。作り方（npm run admin:user）を案内する', async () => {
+    const db = setupViewerDb();
+    db.authUsers = db.authUsers.filter((u) => u.id !== VIEWER_ID);
+    const message = await rejection(db);
+    expect(message).toContain('npm run admin:user');
+    expect(message).toContain('--role=viewer');
+    expect(db.authUpdates).toEqual([]);
+    expectNoSecrets(message);
+  });
+
+  it('パスワードが 8 文字未満なら、アカウントを探さず変えずに投げる。8 文字ちょうどは通る', async () => {
+    const db = setupViewerDb();
+    const message = await rejection(db, { ...VIEWER, password: '1234567' });
+    expect(message).toContain('8 文字未満');
+    expect(db.authListCalls).toEqual([]);
+    expect(db.authUpdates).toEqual([]);
+    expect(message).not.toContain('1234567');
+
+    await expect(resetDemoViewerPassword(db.client, { ...VIEWER, password: '12345678' })).resolves.toEqual({ restored: true });
+    expect(db.authUpdates).toEqual([{ id: VIEWER_ID, attributes: { password: '12345678' } }]);
+  });
+
+  it('アカウントが 1,000 件を超えても、次のページまで探す', async () => {
+    const db = setupViewerDb();
+    const filler: FakeAuthUser[] = Array.from({ length: 1000 }, (_, i) => ({ id: `auth-filler-${i}`, email: `filler${i}@example.com`, app_metadata: { role: 'staff' } }));
+    db.authUsers = [...filler, ...db.authUsers];
+    await expect(resetDemoViewerPassword(db.client, VIEWER)).resolves.toEqual({ restored: true });
+    expect(db.authListCalls).toEqual([
+      { page: 1, perPage: 1000 },
+      { page: 2, perPage: 1000 },
+    ]);
+    expect(db.authUpdates).toEqual([{ id: VIEWER_ID, attributes: { password: VIEWER.password } }]);
+  });
+
+  it('一覧が取れなかったら、変えずに投げる', async () => {
+    const db = setupViewerDb();
+    db.failOn.set('auth:listUsers', { message: 'service unavailable' });
+    expect(await rejection(db)).toContain('service unavailable');
+    expect(db.authUpdates).toEqual([]);
+  });
+
+  it('更新に失敗したら投げる（文にパスワード・メールアドレスは出ない）。同じパスワードを弾かれたときは戻っているので成功', async () => {
+    const db = setupViewerDb();
+    db.failOn.set('auth:updateUser', { message: 'Password should contain letters and digits', code: 'weak_password' });
+    const message = await rejection(db);
+    expect(message).toContain('戻せません');
+    expectNoSecrets(message);
+
+    db.failOn.set('auth:updateUser', { message: 'New password should be different from the old password.', code: 'same_password' });
+    await expect(resetDemoViewerPassword(db.client, VIEWER)).resolves.toEqual({ restored: true });
+  });
+});
+
+describe('runDailyJob の viewer 段', () => {
+  it('DEMO_MODE で資格情報があれば、閲覧用のパスワードを戻す。デモ会話の作り直し・90日削除と並んで動く', async () => {
+    const db = setupViewerDb();
+    const result = await runDailyJob(db.client, NOW, { demo: true, viewer: VIEWER });
+    expect(result.ok).toBe(true);
+    expect(result.demo.status).toBe('ok');
+    expect(result.purge.status).toBe('ok');
+    expect(result.viewer).toEqual({ status: 'ok', value: { restored: true } });
+    expect(db.authUpdates).toEqual([{ id: VIEWER_ID, attributes: { password: VIEWER.password } }]);
+    // 結果（Cron の応答とログになる）にパスワード・メールアドレスを含めない
+    expectNoSecrets(result);
+  });
+
+  it('資格情報が無い（片方だけでも呼ぶ側が null にする）なら skipped。Auth には触れない', async () => {
+    const db = setupViewerDb();
+    for (const viewer of [undefined, null]) {
+      const result = await runDailyJob(db.client, NOW, { demo: true, viewer });
+      expect(result.viewer).toEqual({ status: 'skipped', reason: expect.stringContaining('DEMO_VIEWER_EMAIL') });
+      expect(result.ok).toBe(true);
+    }
+    expect(db.authListCalls).toEqual([]);
+    expect(db.authUpdates).toEqual([]);
+  });
+
+  it('viewer の段が失敗しても、デモ会話の作り直しと90日削除は行い、全体は ok: false（理由にパスワード・メールアドレスは出ない）', async () => {
+    const db = setupViewerDb();
+    db.authUsers[1] = { id: VIEWER_ID, email: 'demo.viewer@example.com', app_metadata: { role: 'staff' } };
+    const result = await runDailyJob(db.client, NOW, { demo: true, viewer: VIEWER });
+    expect(result.ok).toBe(false);
+    expect(result.viewer).toEqual({ status: 'error', message: expect.stringContaining('viewer ではない') });
+    expect(result.demo.status).toBe('ok');
+    expect(result.purge.status).toBe('ok');
+    expect(db.authUpdates).toEqual([]);
+    expectNoSecrets(result);
+  });
+
+  it('デモ会話や90日削除が失敗しても、閲覧用のパスワードは戻す', async () => {
+    const db = setupViewerDb();
+    db.failOn.set('insert:conversations', { code: '23505', message: 'duplicate key' });
+    db.failOn.set('rpc:purge_old_messages', { code: '42883', message: 'function does not exist' });
+    const result = await runDailyJob(db.client, NOW, { demo: true, viewer: VIEWER });
+    expect(result.ok).toBe(false);
+    expect(result.demo.status).toBe('error');
+    expect(result.purge.status).toBe('error');
+    expect(result.viewer.status).toBe('ok');
+    expect(db.authUpdates).toHaveLength(1);
   });
 });
