@@ -61,7 +61,7 @@ export interface GenerateAnswerOutcome {
 
 export const ANSWER_TOOL_NAME = 'submit_answer';
 /** 回答は300字以内（日本語で 500 トークン前後）＋ JSON の枠に収まる余裕。切れたら引き継ぎに倒れる */
-const ANSWER_MAX_TOKENS = 800;
+export const ANSWER_MAX_TOKENS = 800;
 
 // ---------- ツール定義 ----------
 
@@ -118,13 +118,14 @@ function renderTarget({ property: p, position }: AnswerTarget, year: number): st
   return lines.join('\n');
 }
 
-function renderTargets(targets: readonly AnswerTarget[], now: Date): string {
+/** 物件のレコードの表示（「### 1番目: 物件名」の見出しと項目）。1モデル構成は提示済みの全物件をこの形で渡す */
+export function renderTargets(targets: readonly AnswerTarget[], now: Date): string {
   if (targets.length === 0) return '（対象物件なし）';
   const year = jstYear(now);
   return targets.map((t) => renderTarget(t, year)).join('\n\n');
 }
 
-function renderToday(now: Date): string {
+export function renderToday(now: Date): string {
   const { date } = toJst(now);
   return `${date.slice(0, 4)}年${formatJstDay(date)}`;
 }
@@ -285,7 +286,7 @@ function renderExamples(): string {
 
 // ---------- システムプロンプト（固定。キャッシュ対象なので日時・物件・質問は入れない） ----------
 
-export const ANSWER_SYSTEM_PROMPT = `あなたは賃貸仲介会社の LINE 窓口で、お客様に提示した物件への質問に答える担当です。
+const ANSWER_PREAMBLE = `あなたは賃貸仲介会社の LINE 窓口で、お客様に提示した物件への質問に答える担当です。
 結果は必ず ${ANSWER_TOOL_NAME} ツールを1回だけ呼んで返します。ツール以外の文章は出力しません。
 回答文はあとで物件のレコードと機械的に照合され、レコードに根拠の無い記述が1つでもあれば破棄されます。レコードに書いてあることだけを、書いてあるとおりに答えてください。推測で補いません。
 
@@ -297,9 +298,13 @@ export const ANSWER_SYSTEM_PROMPT = `あなたは賃貸仲介会社の LINE 窓�
 ユーザー側のメッセージは次の順で入ります。
 1. 現在日時（JST）
 2. 対象物件: 物件ごとに「1番目: 物件名」の見出しと項目。「提示リスト外」は表示番号のない物件。載っている項目が、その物件について言えることのすべてです
-3. <user_message>…</user_message>: お客様の質問
+3. <user_message>…</user_message>: お客様の質問`;
 
-# 答えてよいこと
+/**
+ * 回答の規則の本体（答えてよいこと・設備・数値・答えない話題・needsStaff・書式）。
+ * 1モデル構成のシステムプロンプト（combined.ts）も、これをそのまま使う（規則を二重に書かない）
+ */
+export const ANSWER_RULES_PROMPT = `# 答えてよいこと
 - 対象物件の項目（家賃・管理費・月額・敷金・礼金・間取り・面積・階・築年・交通・所在地・入居可能日・設備・特徴）に書いてあること
 - 比較の質問（「どっちが駅近？」「どれが安い？」）は、物件を「1番目の○○」のように表示番号つきで呼び、該当の項目を並べ、数値の大小まで言います（「2番目のほうが3分近いです」）。好みの判断（おすすめ・どちらがよいか）はしません
 - 対象が1件のときは番号を付けなくてかまいません。物件名を書くときは表記どおりに書きます（略したり数字を変えたりしない）
@@ -335,18 +340,94 @@ export const ANSWER_SYSTEM_PROMPT = `あなたは賃貸仲介会社の LINE 窓�
 - です・ます調で、2〜4文、300字以内。結論を先に書きます
 - 絵文字・装飾記号・Markdown は使いません
 - 「担当者からご連絡します」「担当者が確認します」のような引き継ぎの約束は書きません（needsStaff が true のとき、システムが後ろに定型文を付けます）
-- 内見のおすすめ・ほかの物件の提案はしません
+- 内見のおすすめ・ほかの物件の提案はしません`;
+
+export const ANSWER_SYSTEM_PROMPT = `${ANSWER_PREAMBLE}
+
+${ANSWER_RULES_PROMPT}
 
 # 出力例（日付の例は今日が ${renderToday(ANSWER_EXAMPLE_NOW)} のとき）
 ${renderExamples()}`;
 
 // ---------- 出力の検証 ----------
 
-const ToolInputSchema = z.object({
+export const AnswerToolInputSchema = z.object({
   answer: z.string(),
   needsStaff: z.boolean(),
   forbiddenTopic: z.enum(FORBIDDEN_TOPICS).nullable(),
 });
+
+export interface FinalizeAnswerParams {
+  /** 回答生成のツール（submit_answer）の入力。未検証なので、ここで zod にかける */
+  toolInput: unknown;
+  question: string;
+  targets: AnswerTarget[];
+  now: Date;
+  logger: Logger;
+  /** 応答したモデル。record に残す */
+  model: string;
+  /** この回答のためにかかった使用量・時間・費用（呼び出しが別にあって計上済みなら 0） */
+  usage: TokenUsage;
+  latencyMs: number;
+  costUsd: number;
+}
+
+/**
+ * 回答生成のツール入力から、利用者に送る結果を作る後処理。
+ * zod で検証 → 禁止トピックなら引き継ぎ → verifyAnswer で根拠検証 → 不一致なら回答文を捨てて引き継ぎ →
+ * 「記載はありません」と言っているのに needsStaff が false なら引き継ぎを補う。
+ * `generateAnswer` と、回答を抽出と同じ1回の呼び出しで受け取る1モデル構成（combined.ts）が共有する
+ */
+export function finalizeAnswer(params: FinalizeAnswerParams): GenerateAnswerOutcome {
+  const { toolInput, question, targets, now, logger, model } = params;
+  const base = { usage: params.usage, latencyMs: params.latencyMs, costUsd: params.costUsd, model };
+
+  const parsed = AnswerToolInputSchema.safeParse(toolInput);
+  if (!parsed.success) {
+    logger.error('[answer] 出力の検証に失敗しました', { error: describeZodError(parsed.error) });
+    return {
+      ...base,
+      text: null,
+      handoff: { topic: null },
+      verification: 'replaced',
+      record: { status: 'invalid', model, rawAnswer: null, needsStaff: null, forbiddenTopic: null, issues: [] },
+    };
+  }
+  const { answer, needsStaff, forbiddenTopic } = parsed.data;
+
+  if (forbiddenTopic !== null) {
+    return {
+      ...base,
+      text: null,
+      handoff: { topic: forbiddenTopic },
+      verification: 'ok',
+      record: { status: 'forbidden', model, rawAnswer: answer, needsStaff, forbiddenTopic, issues: [] },
+    };
+  }
+
+  const verified = verifyAnswer({ text: answer, question, targets, now });
+  if (!verified.ok) {
+    // 問題の token（数値・語）はログに出してよいが、質問文・回答文の本文は出さない
+    logger.error('[answer] 根拠検証で不一致のため、回答文を捨てて引き継ぎに倒します', { issues: verified.issues });
+    return {
+      ...base,
+      text: null,
+      handoff: { topic: null },
+      verification: 'replaced',
+      record: { status: 'unverified', model, rawAnswer: answer, needsStaff, forbiddenTopic, issues: verified.issues },
+    };
+  }
+
+  // 「記載はありません」と書いたのに needsStaff を付け忘れたときも、引き継ぎ文とメモを付けて行き止まりにしない
+  const handOff = needsStaff || saysNotInRecord(answer);
+  return {
+    ...base,
+    text: answer.trim(),
+    handoff: handOff ? { topic: null } : null,
+    verification: 'ok',
+    record: { status: handOff ? 'needsStaff' : 'answered', model, rawAnswer: answer, needsStaff, forbiddenTopic, issues: [] },
+  };
+}
 
 // ---------- 本体 ----------
 
@@ -390,56 +471,15 @@ export async function generateAnswer(params: GenerateAnswerParams): Promise<Gene
     };
   }
 
-  const base = {
+  return finalizeAnswer({
+    toolInput: call.input,
+    question,
+    targets,
+    now,
+    logger,
+    model: call.model,
     usage: call.usage,
     latencyMs: call.latencyMs,
     costUsd: costUsd(call.model, call.usage),
-    model: call.model,
-  };
-
-  const parsed = ToolInputSchema.safeParse(call.input);
-  if (!parsed.success) {
-    logger.error('[answer] 出力の検証に失敗しました', { error: describeZodError(parsed.error) });
-    return {
-      ...base,
-      text: null,
-      handoff: { topic: null },
-      verification: 'replaced',
-      record: { status: 'invalid', model: call.model, rawAnswer: null, needsStaff: null, forbiddenTopic: null, issues: [] },
-    };
-  }
-  const { answer, needsStaff, forbiddenTopic } = parsed.data;
-
-  if (forbiddenTopic !== null) {
-    return {
-      ...base,
-      text: null,
-      handoff: { topic: forbiddenTopic },
-      verification: 'ok',
-      record: { status: 'forbidden', model: call.model, rawAnswer: answer, needsStaff, forbiddenTopic, issues: [] },
-    };
-  }
-
-  const verified = verifyAnswer({ text: answer, question, targets, now });
-  if (!verified.ok) {
-    // 問題の token（数値・語）はログに出してよいが、質問文・回答文の本文は出さない
-    logger.error('[answer] 根拠検証で不一致のため、回答文を捨てて引き継ぎに倒します', { issues: verified.issues });
-    return {
-      ...base,
-      text: null,
-      handoff: { topic: null },
-      verification: 'replaced',
-      record: { status: 'unverified', model: call.model, rawAnswer: answer, needsStaff, forbiddenTopic, issues: verified.issues },
-    };
-  }
-
-  // 「記載はありません」と書いたのに needsStaff を付け忘れたときも、引き継ぎ文とメモを付けて行き止まりにしない
-  const handOff = needsStaff || saysNotInRecord(answer);
-  return {
-    ...base,
-    text: answer.trim(),
-    handoff: handOff ? { topic: null } : null,
-    verification: 'ok',
-    record: { status: handOff ? 'needsStaff' : 'answered', model: call.model, rawAnswer: answer, needsStaff, forbiddenTopic, issues: [] },
-  };
+  });
 }

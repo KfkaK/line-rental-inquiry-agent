@@ -2,14 +2,12 @@
  * 本番の部品の組み立て（Supabase・LINE・Claude・Resend）。テストは handleEvent に偽物の Deps を渡す。
  * 担当者へのメール通知は Resend。RESEND_API_KEY と STAFF_NOTIFY_EMAIL が揃わないときはログで代える。
  */
-import { detectForbiddenTopicByKeyword } from '@/domain/forbidden';
-import { relevantAccess } from '@/domain/search';
 import { createSupabaseRepositories } from '@/lib/db';
 import { optionalEnv } from '@/lib/env';
 import { createLineMessenger } from '@/lib/line/messenger';
 import { generateAnswer } from '@/lib/llm/answer';
 import { createAnthropicClient, type Logger } from '@/lib/llm/client';
-import { extractIntentAndSlots } from '@/lib/llm/extract';
+import { extractIntentAndSlots, toShownProperties, withKeywordSafetyNet } from '@/lib/llm/extract';
 import { createResendNotifier } from '@/lib/notify/resend';
 import type { Answerer, Deps, Extractor, StaffNotifier } from './handleEvent';
 
@@ -22,6 +20,8 @@ const DEFAULT_NOTIFY_FROM = 'お部屋探しAI <onboarding@resend.dev>';
 export interface LlmStageOptions {
   model?: string;
   logger?: Logger;
+  /** false で辞書の前段を通さない抽出にする（「辞書なし」の測定用。抽出だけに効く。本番は既定の true） */
+  useDictionary?: boolean;
 }
 
 export function createExtractor(client = createAnthropicClient(), options: LlmStageOptions = {}): Extractor {
@@ -33,21 +33,11 @@ export function createExtractor(client = createAnthropicClient(), options: LlmSt
       client,
       model: options.model,
       logger: options.logger,
-      shown: shown.map(({ position, property }) => {
-        const access = relevantAccess(property, slots.area?.value);
-        return {
-          position,
-          name: property.name,
-          rent: property.rent,
-          station: access.station,
-          walkMin: access.walkMin,
-          layout: property.layout,
-        };
-      }),
+      useDictionary: options.useDictionary,
+      shown: toShownProperties(shown, slots),
     });
     // 抽出に2回失敗して offTopic に倒れたときだけ、禁止トピックを語で拾う安全網をかける
-    const forbidden = out.fallback ? detectForbiddenTopicByKeyword(utterance) : null;
-    const result = forbidden ? { ...out.result, intent: 'handoff' as const, forbiddenTopic: forbidden } : out.result;
+    const result = withKeywordSafetyNet(out.result, utterance, out.fallback);
     return { result, latencyMs: out.latencyMs, costUsd: out.costUsd, model: out.model };
   };
 }

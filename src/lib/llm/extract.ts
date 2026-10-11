@@ -4,10 +4,15 @@
  * LLM が出すのは「スロットの差分（SlotOp）・意図・参照位置・日時・禁止トピック」だけ。
  * 検索・絞り込み・スコア計算は一切させない（不変条件 1・2）。
  * 流れ: 発話 → preNormalize（辞書で正規化・hints）→ LLM（tool use）→ zod で検証 → canonicalizeOps → ExtractionResult
+ *
+ * 検証・再試行・費用計上を含む本体は `runExtraction`。システムプロンプトとツールだけを替えて使えるので、
+ * 評価用の1モデル構成（combined.ts）も同じ検証を通る。
  */
 import { z } from 'zod';
+import { detectForbiddenTopicByKeyword } from '../../domain/forbidden';
 import { canonicalizeOpsWithReport, canonicalizeViewingTime, jstParts, preNormalize, type NormalizeHints } from '../../domain/normalize';
 import { DEFAULT_PRIORITY, FALLBACK_RELAX_RENT_YEN, NEAR_STATION_WALK_MIN } from '../../domain/rules';
+import { relevantAccess } from '../../domain/search';
 import { STATIONS, WARDS } from '../../domain/stations';
 import {
   FORBIDDEN_TOPICS,
@@ -19,6 +24,7 @@ import {
   type ExtractionResult,
   type ForbiddenTopic,
   type Layout,
+  type Property,
   type Slots,
 } from '../../domain/types';
 import { LlmToolCallError, type Logger, type LlmClient, type LlmToolDef } from './client';
@@ -47,6 +53,11 @@ export interface ExtractParams {
   /** 既定は MODEL_FAST */
   model?: string;
   logger?: Logger;
+  /**
+   * false のとき前段の辞書（`preNormalize`）を通さない: 発話は正規化せずそのまま渡し、辞書の検出ヒントは空にする。
+   * 出力側の `canonicalizeOps` は語彙の検証なので残す。評価で「辞書なし → 辞書あり」を比べるための口（DESIGN.md 10.2）。本番は既定の true
+   */
+  useDictionary?: boolean;
 }
 
 export interface ExtractOutcome {
@@ -64,10 +75,25 @@ export interface ExtractOutcome {
   fallback: boolean;
   /** 辞書で解決できず捨てた op（ログ・評価セットの追加用） */
   droppedOps: Array<{ raw: unknown; reason: string }>;
+  /** 検証を通した試行のツール入力（未加工）。1モデル構成（combined.ts）が抽出以外の項目を取り出すのに使う。fallback のとき null */
+  toolInput: unknown;
+}
+
+/** 抽出の呼び出しの差し替え口。1モデル構成（combined.ts）がシステムプロンプトとツールを替え、同じ検証・再試行・費用計上を使う */
+export interface ExtractVariant {
+  system: string;
+  tool: LlmToolDef;
+  maxTokens: number;
+  /** 既定は EXTRACTION_TEMPERATURE */
+  temperature?: number;
+  /** ツール入力のスキーマ保証（`strict`）。スキーマが strict の制約を満たすときだけ */
+  strict?: boolean;
+  /** user メッセージの「辞書の検出ヒント」と発話の間に足す節（見出しつき） */
+  extraSections?: readonly string[];
 }
 
 export const EXTRACTION_TOOL_NAME = 'submit_extraction';
-const EXTRACTION_MAX_TOKENS = 1024;
+export const EXTRACTION_MAX_TOKENS = 1024;
 /** 抽出は決定的に近いほうがよい。Haiku 4.5 は temperature を受け付ける（Sonnet 5.5 は受け付けないので client が無視する） */
 const EXTRACTION_TEMPERATURE = 0;
 const MAX_ATTEMPTS = 2;
@@ -129,9 +155,24 @@ export function buildExtractionTool(): LlmToolDef {
 // ---------- システムプロンプト（固定。キャッシュ対象なので日時・発話・スロットは入れない） ----------
 
 const EXAMPLE_TODAY = '2026-10-07（水）';
+/** 出力例の「今日」を他のプロンプト（combined.ts）が見出しに書くために公開する */
+export const EXTRACTION_EXAMPLE_TODAY = EXAMPLE_TODAY;
 const EXAMPLE_RENT = 70_000;
 
-const EXAMPLES = [
+export interface ExtractionExample {
+  /** 例の前提（スロット・提示済みの件数・今日の日付） */
+  state: string;
+  utterance: string;
+  output: {
+    intent: string;
+    ops: unknown[];
+    targetPositions: number[];
+    viewingTimes: string[];
+    forbiddenTopic: string | null;
+  };
+}
+
+export const EXTRACTION_EXAMPLES: readonly ExtractionExample[] = [
   {
     state: 'スロットなし',
     utterance: '渋谷か恵比寿で7万以内、ペット可がいいな',
@@ -236,14 +277,16 @@ const EXAMPLES = [
   },
 ];
 
-function renderExamples(): string {
-  return EXAMPLES.map(
-    (e, i) =>
-      `例${i + 1}\n状態: ${e.state}\n発話: ${e.utterance}\n出力: ${JSON.stringify(e.output)}`,
-  ).join('\n\n');
+/** 出力例1件の文章。`output` を替えると、同じ状態・発話で別の出力形（1モデル構成の `answer` つき）の例が作れる */
+export function renderExtractionExample(e: ExtractionExample, index: number, output: unknown = e.output): string {
+  return `例${index + 1}\n状態: ${e.state}\n発話: ${e.utterance}\n出力: ${JSON.stringify(output)}`;
 }
 
-export const EXTRACTION_SYSTEM_PROMPT = `あなたは賃貸仲介会社の LINE 問い合わせ窓口で、ユーザーの1回の発話を読んで「意図の分類」と「検索条件の抽出」を行う担当です。
+function renderExamples(): string {
+  return EXTRACTION_EXAMPLES.map((e, i) => renderExtractionExample(e, i)).join('\n\n');
+}
+
+const EXTRACTION_PREAMBLE = `あなたは賃貸仲介会社の LINE 問い合わせ窓口で、ユーザーの1回の発話を読んで「意図の分類」と「検索条件の抽出」を行う担当です。
 結果は必ず ${EXTRACTION_TOOL_NAME} ツールを1回だけ呼んで返します。ツール以外の文章は出力しません。
 あなたが返すのは検索条件の「差分」だけです。物件の検索・絞り込み・並べ替え・回答文の作成は別の処理が行うので、ここでは行いません。
 
@@ -258,9 +301,13 @@ export const EXTRACTION_SYSTEM_PROMPT = `あなたは賃貸仲介会社の LINE 
 2. 現在の条件スロット（JSON）。ops はこれに対する差分
 3. 提示済みの物件（表示番号つき）。「2番目の」「さっきの安い方」の解決に使う
 4. 辞書の検出ヒント。表記ゆれを辞書で正規化した候補（駅・区・金額・間取り・タグ・徒歩・階・入居時期）。参考にしてよいが、発話の文脈（否定・別の意味）に合うものだけ採用する。ヒントにあっても発話の意味に無い条件は出さない
-5. <user_message>…</user_message>: 正規化後の発話
+5. <user_message>…</user_message>: 正規化後の発話`;
 
-# intent（発話の主目的）
+/**
+ * 規則の本体（意図・スロットの差分・優先度・提示済み物件の参照・内見の日時・禁止トピック）。
+ * 1モデル構成のシステムプロンプト（combined.ts）も、これをそのまま使う（規則を二重に書かない）
+ */
+export const EXTRACTION_RULES_PROMPT = `# intent（発話の主目的）
 - conditions: 条件の提示・変更・削除・優先度の変更。「渋谷で7万以内」「やっぱり2階以上は必須」「もう少し安いのは？」。条件の話が含まれるときはこれを優先する
 - showMore: 新しい条件なしに、他の物件・続きを見たい。「もっと見せて」「他は？」「次」
 - propertyQuestion: 提示済みの物件についての質問・比較。「2番目はペット飼える？」「1番と3番どっちが駅近？」
@@ -316,7 +363,11 @@ AI は答えず担当者へ渡す話題。intent とは独立に判定し、該�
 - noise: 騒音・隣室や周辺の音・うるささについての質問。「静かな部屋がいい」という希望はタグ（静か）で、noise ではない
 - screening: 入居審査・保証人・保証会社・収入や職業・国籍で借りられるか
 - neighbors: 近隣住民・隣人・住人の属性や評判
-禁止トピックを主題にした質問と、「担当者と話したい」「電話したい」は intent を handoff にする。条件の変更と同時に出てきたときは、条件を ops に出したうえで forbiddenTopic も入れ、intent は発話の主目的で選ぶ。
+禁止トピックを主題にした質問と、「担当者と話したい」「電話したい」は intent を handoff にする。条件の変更と同時に出てきたときは、条件を ops に出したうえで forbiddenTopic も入れ、intent は発話の主目的で選ぶ。`;
+
+export const EXTRACTION_SYSTEM_PROMPT = `${EXTRACTION_PREAMBLE}
+
+${EXTRACTION_RULES_PROMPT}
 
 # 出力例（日付の例は今日が ${EXAMPLE_TODAY} のとき）
 ${renderExamples()}`;
@@ -379,7 +430,20 @@ export function escapeForUserMessage(text: string): string {
   return text.replace(/</g, '＜').replace(/>/g, '＞');
 }
 
-export function buildUserMessage(params: { text: string; hints: NormalizeHints; slots: Slots; shown: ShownProperty[]; now: Date }): string {
+/** 辞書を使わない抽出（`useDictionary: false`）の hints。何も検出していない状態 */
+function emptyHints(): NormalizeHints {
+  return { stations: [], wards: [], rentMax: [], layouts: [], tags: [] };
+}
+
+export function buildUserMessage(params: {
+  text: string;
+  hints: NormalizeHints;
+  slots: Slots;
+  shown: ShownProperty[];
+  now: Date;
+  /** 「辞書の検出ヒント」と発話の間に足す節（見出しつき）。1モデル構成が提示済み物件のレコードを載せる */
+  extraSections?: readonly string[];
+}): string {
   const cal = jstCalendar(params.now);
   return [
     '## 現在日時（JST）',
@@ -395,6 +459,7 @@ export function buildUserMessage(params: { text: string; hints: NormalizeHints; 
     '## 辞書の検出ヒント',
     renderHints(params.hints),
     '',
+    ...(params.extraSections ?? []).flatMap((section) => [section, '']),
     '<user_message>',
     escapeForUserMessage(params.text),
     '</user_message>',
@@ -471,12 +536,27 @@ export function describeZodError(error: z.ZodError): string {
  * 呼び出し側（Webhook）が「混み合っています」などで返す。
  */
 export async function extractIntentAndSlots(params: ExtractParams): Promise<ExtractOutcome> {
+  return runExtraction(params, EXTRACTION_VARIANT);
+}
+
+/** 抽出専用（Haiku 級・EXTRACTION_SYSTEM_PROMPT・submit_extraction）の呼び出し。本番の既定 */
+const EXTRACTION_VARIANT: ExtractVariant = {
+  system: EXTRACTION_SYSTEM_PROMPT,
+  tool: buildExtractionTool(),
+  maxTokens: EXTRACTION_MAX_TOKENS,
+  temperature: EXTRACTION_TEMPERATURE,
+};
+
+/**
+ * `extractIntentAndSlots` の本体。検証（zod → canonicalizeOps → 表示番号の検査）・1回の再試行・費用の計上・
+ * offTopic への倒し方は、`variant` を替えても同じ。ツール入力のうち抽出以外の項目は `toolInput` で返す
+ */
+export async function runExtraction(params: ExtractParams, variant: ExtractVariant): Promise<ExtractOutcome> {
   const { utterance, slots, shown, now, client } = params;
   const model = params.model ?? MODEL_FAST;
   const logger = params.logger ?? console;
-  const pre = preNormalize(utterance, now);
-  const userMessage = buildUserMessage({ text: pre.text, hints: pre.hints, slots, shown, now });
-  const tool = buildExtractionTool();
+  const pre = params.useDictionary === false ? { text: utterance, hints: emptyHints() } : preNormalize(utterance, now);
+  const userMessage = buildUserMessage({ text: pre.text, hints: pre.hints, slots, shown, now, extraSections: variant.extraSections });
 
   let usage: TokenUsage = EMPTY_USAGE;
   let latencyMs = 0;
@@ -488,16 +568,17 @@ export async function extractIntentAndSlots(params: ExtractParams): Promise<Extr
     const user =
       attempt === 1
         ? userMessage
-        : `${userMessage}\n\n（前回の出力は検証に失敗しました: ${lastError}。${EXTRACTION_TOOL_NAME} ツールのスキーマに従って、もう一度出力してください）`;
+        : `${userMessage}\n\n（前回の出力は検証に失敗しました: ${lastError}。${variant.tool.name} ツールのスキーマに従って、もう一度出力してください）`;
     let call;
     try {
       call = await client.callTool<unknown>({
         model,
-        system: EXTRACTION_SYSTEM_PROMPT,
+        system: variant.system,
         user,
-        tool,
-        maxTokens: EXTRACTION_MAX_TOKENS,
-        temperature: EXTRACTION_TEMPERATURE,
+        tool: variant.tool,
+        maxTokens: variant.maxTokens,
+        temperature: variant.temperature ?? EXTRACTION_TEMPERATURE,
+        ...(variant.strict ? { strict: true } : {}),
       });
     } catch (err) {
       if (!(err instanceof LlmToolCallError)) throw err;
@@ -520,7 +601,17 @@ export async function extractIntentAndSlots(params: ExtractParams): Promise<Extr
     if (parsed.success) {
       const { result, dropped } = toExtractionResult(parsed.data, new Set(shown.map((s) => s.position)));
       if (dropped.length > 0) logger.error('[extract] 辞書で解決できない値を捨てました', { dropped });
-      return { result, usage, latencyMs, model: lastModel, costUsd: cost, attempts: attempt, fallback: false, droppedOps: dropped };
+      return {
+        result,
+        usage,
+        latencyMs,
+        model: lastModel,
+        costUsd: cost,
+        attempts: attempt,
+        fallback: false,
+        droppedOps: dropped,
+        toolInput: call.input,
+      };
     }
     lastError = describeZodError(parsed.error);
     logger.error('[extract] 出力の検証に失敗しました', { attempt, error: lastError });
@@ -537,5 +628,32 @@ export async function extractIntentAndSlots(params: ExtractParams): Promise<Extr
     attempts: MAX_ATTEMPTS,
     fallback: true,
     droppedOps: [],
+    toolInput: null,
   };
+}
+
+// ---------- 抽出の呼び出し側が共有する部品 ----------
+
+/** 会話エンジンの提示済みリスト（物件のレコードつき）を、抽出のプロンプトに載せる一覧の形にする。表示するのはエリア内の最寄りの駅と徒歩 */
+export function toShownProperties(shown: ReadonlyArray<{ position: number; property: Property }>, slots: Slots): ShownProperty[] {
+  return shown.map(({ position, property }) => {
+    const access = relevantAccess(property, slots.area?.value);
+    return {
+      position,
+      name: property.name,
+      rent: property.rent,
+      station: access.station,
+      walkMin: access.walkMin,
+      layout: property.layout,
+    };
+  });
+}
+
+/**
+ * 抽出に2回失敗して offTopic に倒れたとき（`fallback`）だけ、禁止トピックを語で拾う安全網をかける。
+ * 空室などを聞かれたのに「物件探しのお手伝いをします」と流さず、担当者へ回す
+ */
+export function withKeywordSafetyNet(result: ExtractionResult, utterance: string, fallback: boolean): ExtractionResult {
+  const forbidden = fallback ? detectForbiddenTopicByKeyword(utterance) : null;
+  return forbidden ? { ...result, intent: 'handoff', forbiddenTopic: forbidden } : result;
 }
