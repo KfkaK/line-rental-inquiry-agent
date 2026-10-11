@@ -24,6 +24,8 @@ export const ENV_NAMES = [
   'ADMIN_PREVIEW',
   /** '1' で公開デモの文面にする（あいさつと引き継ぎ・仮受付の文に「デモのため担当者からの連絡はありません」を足す） */
   'DEMO_MODE',
+  /** Vercel Cron の認証。設定すると Vercel が `Authorization: Bearer <値>` を付けて /api/cron/daily を呼ぶ。未設定なら Cron は何もしない（500） */
+  'CRON_SECRET',
 ] as const;
 export type EnvName = (typeof ENV_NAMES)[number];
 

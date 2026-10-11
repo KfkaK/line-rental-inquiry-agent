@@ -13,6 +13,7 @@
     "data:generate": "tsx scripts/generate-properties.ts",
     "data:import": "tsx scripts/import-properties.ts",
     "admin:user": "tsx scripts/admin-user.ts",
+    "demo:seed": "tsx scripts/seed-demo.ts",
     "eval": "tsx scripts/eval.ts",
     "check:contrast": "node scripts/check-contrast.js",
     "check": "npm run typecheck && npm run lint && npm test && npm run check:contrast"
