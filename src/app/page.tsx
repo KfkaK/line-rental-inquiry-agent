@@ -18,6 +18,14 @@ export default function Home() {
           管理画面を開く
         </Link>
       </div>
+      <nav aria-label="規約" className="flex flex-wrap gap-x-6 border-t border-line pt-4 text-sm">
+        <Link href="/privacy" className="inline-flex min-h-11 items-center text-accent underline underline-offset-4">
+          プライバシーポリシー
+        </Link>
+        <Link href="/terms" className="inline-flex min-h-11 items-center text-accent underline underline-offset-4">
+          利用規約
+        </Link>
+      </nav>
     </main>
   );
 }
