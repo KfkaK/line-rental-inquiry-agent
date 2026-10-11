@@ -11,7 +11,10 @@
 #   （force push はしない。公開側の履歴が食い違ったら push が拒否されて止まる）
 # - 公開側では、docs の PR 番号のリンク（KfkaK/line-rental-agent#N）が非公開の開発用リポジトリを指す（README に明記する）
 # - この PC では push が git-credential-manager の画面待ちで固まることがある。そのときは引き継ぎ書8章のとおり
-#   gh の認証を使う（GIT_PUSH_OPTS に `-c credential.helper= -c credential.helper=...` を入れて渡せる）
+#   gh の認証を使う。git の設定を環境変数で渡せる（fetch と push の両方に効く）:
+#   GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= \
+#     GIT_CONFIG_KEY_1=credential.helper GIT_CONFIG_VALUE_1='!"/c/Program Files/GitHub CLI/gh.exe" auth git-credential' bash scripts/public-mirror.sh ...
+# - 写すのは GitHub の origin/main（PR でマージ済みのもの）。手元の main が古い・main に push していないコミットがある、は関係しない
 set -euo pipefail
 
 usage() {
@@ -27,9 +30,11 @@ src="$(git rev-parse --show-toplevel)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-git clone --quiet --no-local --single-branch --branch main "$src" "$work/mirror"
+git -C "$src" fetch --quiet origin main
+git init --quiet "$work/mirror"
 cd "$work/mirror"
-git remote remove origin
+git fetch --quiet "$src" refs/remotes/origin/main
+git checkout --quiet -B main FETCH_HEAD
 
 # 作者名 → GitHub の noreply（ID は `gh api users/<login> --jq .id`）。GitHub 上のマージのコミッター（GitHub <noreply@github.com>）はそのまま
 FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch -f --env-filter '
@@ -52,13 +57,13 @@ if [ -n "$leftover" ]; then
   echo "noreply 以外のメールアドレスが残っています（作者名の表に足してください）: $(echo "$leftover" | wc -l) 件" >&2
   exit 1
 fi
-# 検査 2: 本文・ファイルに個人のメールアドレスが無いか（よくあるフリーメールのドメインだけを見る）
+# 検査 2: 本文・ファイル（過去の版も含む）に個人のメールアドレスが無いか（よくあるフリーメールのドメインだけを見る）
 if git log main --format='%B' | grep -qiE '@(gmail|yahoo|icloud|outlook|hotmail)\.'; then
   echo 'コミットメッセージに個人のメールアドレスがあります' >&2
   exit 1
 fi
-if git grep -qiE '[A-Za-z0-9._%+-]+@(gmail|yahoo|icloud|outlook|hotmail)\.' main -- .; then
-  echo 'ファイルに個人のメールアドレスがあります' >&2
+if git log main -p --format= | grep -qiE '[A-Za-z0-9._%+-]+@(gmail|yahoo|icloud|outlook|hotmail)\.'; then
+  echo 'ファイル（過去の版を含む）に個人のメールアドレスがあります' >&2
   exit 1
 fi
 
@@ -70,6 +75,5 @@ if $dry_run; then
   echo '--dry-run のため push しません'
   exit 0
 fi
-# shellcheck disable=SC2086
-git ${GIT_PUSH_OPTS:-} push "$target" main:main
+git push "$target" main:main
 echo "push しました: $target"

@@ -9,6 +9,8 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { toJst } from '@/domain/businessHours';
+import { formatManYen } from '@/domain/labels';
 import { monthlyCost, searchProperties } from '@/domain/search';
 import { listConditions } from '@/domain/slots';
 import type { Priority, ScoredProperty } from '@/domain/types';
@@ -20,15 +22,11 @@ const OUT = path.join('docs', '並び順の監査.md');
 const TOP_N = 5;
 const PRIORITY_LABEL: Record<Priority, string> = { must: '外せない', want: 'できれば', nice: 'あれば嬉しい' };
 
-function yen(n: number): string {
-  return `${(n / 10000).toFixed(n % 1000 === 0 ? 1 : 2).replace(/\.0$/, '')}万円`;
-}
-
 function row(rank: number, s: ScoredProperty): string {
   const p = s.property;
   const access = `${s.displayAccess.station} 徒歩${s.displayAccess.walkMin}分`;
   const unmatched = s.unmatched.length > 0 ? s.unmatched.join('・') : '—';
-  return `| ${rank} | ${p.name}（${p.id}） | ${yen(monthlyCost(p))} | ${access} | ${p.layout}・${p.floor}階・${p.areaSqm}㎡ | ${unmatched} | |`;
+  return `| ${rank} | ${p.name}（${p.id}） | ${formatManYen(monthlyCost(p))}円 | ${access} | ${p.layout}・${p.floor}階・${p.areaSqm}㎡ | ${unmatched} | |`;
 }
 
 async function main(): Promise<void> {
@@ -37,7 +35,7 @@ async function main(): Promise<void> {
   const lines: string[] = [
     '# 並び順の監査',
     '',
-    `- 作成: \`npx tsx scripts/ranking-audit.ts\`（${new Date().toISOString().slice(0, 10)}）。シナリオ 15 本を台本の正解の抽出で回し、新しい検索で物件カードを出した手番の上位 ${TOP_N} 件`,
+    `- 作成: \`npx tsx scripts/ranking-audit.ts\`（${toJst(new Date()).date}）。シナリオ 15 本を台本の正解の抽出で回し、新しい検索で物件カードを出した手番の上位 ${TOP_N} 件`,
     '- 並びの規則: 外せない条件で絞り、残りの条件（できれば・あれば嬉しい）の一致度の高い順 → 月額（家賃＋管理費）の安い順 → 物件 ID 順（DESIGN.md 4.2）。スコアの数値はわざと出していない',
     '- 見方: 条件と物件の中身だけを見て、「この順はおかしい」「この物件が上にあるべき」と思ったら、その行の「違和感」に理由を書く。直すかどうかは後で決める（重みをその場でいじらない）',
     '',
