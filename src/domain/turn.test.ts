@@ -323,3 +323,87 @@ describe('内見の仮受付', () => {
     expect(texts(d)[0]).toContain('ご案内できません');
   });
 });
+
+describe('営業時間外の案内は友だち追加のあいさつと重ねない', () => {
+  const OUTSIDE = '営業時間外';
+
+  it('友だち追加を経ずに話しかけられた最初の発話には、営業時間外の案内を足す', () => {
+    const d = search(shibuya(3), AREA_AND_BUDGET, fresh(), NIGHT);
+    expect(texts(d)[0]).toContain(OUTSIDE);
+  });
+
+  it('友だち追加のあいさつを出した会話の最初の発話には足さない（ブロック解除のあいさつの直後も同じ）', () => {
+    const props = shibuya(3);
+    const greeted = decideTurn(fresh(), { kind: 'follow' }, ctx(props, NIGHT));
+    expect(texts(greeted)[0]).toContain(OUTSIDE);
+    const d = decideTurn(
+      greeted.next,
+      { kind: 'text', text: '渋谷で9万まで', extraction: ex({ ops: AREA_AND_BUDGET }) },
+      { ...ctx(props, NIGHT), greeted: true },
+    );
+    expect(texts(d).filter((t) => t.includes(OUTSIDE))).toEqual([]);
+    expect(texts(d)[0]).toContain('3件あります');
+  });
+
+  it('営業時間内なら、あいさつの有無にかかわらず何も足さず、検索の結果も変わらない', () => {
+    const props = shibuya(3);
+    const event = { kind: 'text', text: '渋谷で9万まで', extraction: ex({ ops: AREA_AND_BUDGET }) } as const;
+    const a = decideTurn(fresh(), event, ctx(props));
+    const b = decideTurn(fresh(), event, { ...ctx(props), greeted: true });
+    expect(b).toEqual(a);
+    expect(texts(a).filter((t) => t.includes(OUTSIDE))).toEqual([]);
+  });
+
+  it('始まった後の会話（条件がある）には、あいさつの有無にかかわらず足さない', () => {
+    const props = shibuya(3);
+    const started = search(props, AREA_AND_BUDGET, fresh(), NIGHT).next;
+    const d = decideTurn(started, { kind: 'more' }, ctx(props, NIGHT));
+    expect(texts(d).filter((t) => t.includes(OUTSIDE))).toEqual([]);
+  });
+});
+
+describe('公開デモ（demo: true）', () => {
+  const DEMO = 'これはデモです。物件は架空のデータで、担当者からの連絡はありません。';
+  const NO_CONTACT = '（デモのため、実際の連絡はありません）';
+  const demoCtx = (properties: Property[], now = NOON): TurnContext => ({ ...ctx(properties, now), demo: true });
+
+  it('友だち追加のあいさつにデモである旨を足す。AI の一次対応の明示は残る', () => {
+    const d = decideTurn(fresh(), { kind: 'follow' }, demoCtx([], NIGHT));
+    expect(texts(d)[0]).toContain(DEMO);
+    expect(texts(d)[0]).toContain('AI が一次対応');
+    expect(texts(d)[0]).toContain('営業時間外');
+    // 通常は出さない
+    expect(texts(decideTurn(fresh(), { kind: 'follow' }, ctx([], NIGHT)))[0]).not.toContain('デモ');
+  });
+
+  it('引き継ぎ文に「実際の連絡はありません」を足す（時間外・時間内とも）。担当者が確認する旨は残る', () => {
+    const forbidden = ex({ intent: 'propertyQuestion', forbiddenTopic: 'safety' });
+    const night = decideTurn(fresh(), { kind: 'text', text: 'この辺の治安どう？', extraction: forbidden }, demoCtx([], NIGHT));
+    expect(texts(night)[0]).toContain(`10月8日(木)に担当者からご連絡します。${NO_CONTACT}`);
+    expect(texts(night)[0]).toContain('周辺の治安については担当者が確認します');
+    const noon = decideTurn(fresh(), { kind: 'text', text: 'この辺の治安どう？', extraction: forbidden }, demoCtx([], NOON));
+    expect(texts(noon)[0]).toContain(`営業時間内に担当者からご連絡します。${NO_CONTACT}`);
+    // 通常は足さない
+    const normal = decideTurn(fresh(), { kind: 'text', text: 'この辺の治安どう？', extraction: forbidden }, ctx([], NIGHT));
+    expect(texts(normal)[0]).not.toContain('デモ');
+  });
+
+  it('内見の仮受付の文に「実際の連絡はありません」を足すが、「まだ予約は確定していません」は保つ（AI は確定しない）', () => {
+    const props = shibuya(3);
+    const c = demoCtx(props, NIGHT);
+    const presented = search(props, AREA_AND_BUDGET, fresh(), NIGHT).next;
+    const d1 = decideTurn(presented, { kind: 'viewing', propertyId: 'S001' }, c);
+    const d2 = decideTurn(d1.next, { kind: 'viewingDay', date: '2026-10-08' }, c);
+    const d3 = decideTurn(d2.next, { kind: 'viewingDay', date: '2026-10-10' }, c);
+    expect(d3.viewingRequest).not.toBeNull();
+    expect(texts(d3)[0]).toContain('まだ予約は確定していません');
+    expect(texts(d3)[0]).toContain(`10月8日(木)に担当者から確定のご連絡をします。${NO_CONTACT}`);
+    expect(texts(d3)[0]).not.toContain('確定しました');
+  });
+
+  it('検索・並び順などの判断は通常と同じ（文面だけが違う）', () => {
+    const props = shibuya(8);
+    const event = { kind: 'text', text: '渋谷で9万まで', extraction: ex({ ops: AREA_AND_BUDGET }) } as const;
+    expect(decideTurn(fresh(), event, demoCtx(props))).toEqual(decideTurn(fresh(), event, ctx(props)));
+  });
+});

@@ -89,6 +89,25 @@ export interface TurnContext {
   calendar: BusinessCalendar;
   /** 公開物件の全件 */
   properties: readonly Property[];
+  /**
+   * 公開デモ（DEMO_MODE=1）。担当者からの連絡は実際には無いので、あいさつと引き継ぎ・仮受付の文に
+   * 「デモのため連絡はありません」を足す（messages.ts）。省略は false
+   */
+  demo?: boolean;
+  /**
+   * 営業時間外の案内をすでに出した会話か（サーバーが会話ログから決める。`isUnstarted` が真のときだけ見る）。
+   * 時間外の友だち追加のあいさつは同じ案内を含むので、その直後の最初の発話に重ねない。省略は false
+   * （友だち追加を経ずに話しかけられた会話や、営業時間内にあいさつした会話は、時間外の最初の発話で案内する）
+   */
+  greeted?: boolean;
+}
+
+/**
+ * まだ何も始まっていない会話か（ヒアリング中で、条件も提示もない）。友だち追加の直後も、友だち追加を経ずに
+ * 最初の発話を受けたときも真になる。区別するには `TurnContext.greeted` を使う
+ */
+export function isUnstarted(conv: ConversationSnapshot): boolean {
+  return conv.state === 'hearing' && listConditions(conv.slots).length === 0 && conv.shownPropertyIds.length === 0;
 }
 
 // ---------- クイックリプライの候補 ----------
@@ -117,7 +136,7 @@ export function decideTurn(conv: ConversationSnapshot, event: TurnEvent, ctx: Tu
       return {
         ...base(conv),
         next: initialSnapshot(),
-        replies: [{ type: 'text', text: msg.greeting(!isOpenAt(ctx.now, ctx.calendar)) }],
+        replies: [{ type: 'text', text: msg.greeting(!isOpenAt(ctx.now, ctx.calendar), ctx.demo) }],
         quickReplies: quickAsk('area'),
       };
     case 'more':
@@ -156,8 +175,9 @@ function base(conv: ConversationSnapshot): TurnDecision {
 
 function onText(conv: ConversationSnapshot, text: string, ex: ExtractionResult, ctx: TurnContext): TurnDecision {
   const decision = onTextInner(conv, text, ex, ctx);
-  // 会話の最初のターンが営業時間外なら冒頭で案内する（友だち追加を経ずに話しかけられた場合）
-  const isFirstTurn = conv.state === 'hearing' && listConditions(conv.slots).length === 0 && conv.shownPropertyIds.length === 0;
+  // 会話の最初のターンが営業時間外なら冒頭で案内する（友だち追加を経ずに話しかけられた場合）。
+  // 友だち追加のあいさつを出した会話では、あいさつがすでに案内しているので重ねない
+  const isFirstTurn = isUnstarted(conv) && !ctx.greeted;
   if (isFirstTurn && !isOpenAt(ctx.now, ctx.calendar) && !ex.forbiddenTopic && ex.intent !== 'handoff') {
     decision.replies.unshift({ type: 'text', text: msg.outsideHoursNote() });
   }
@@ -167,7 +187,7 @@ function onText(conv: ConversationSnapshot, text: string, ex: ExtractionResult, 
 function onTextInner(conv: ConversationSnapshot, text: string, ex: ExtractionResult, ctx: TurnContext): TurnDecision {
   if (ex.forbiddenTopic || ex.intent === 'handoff') {
     const outside = !isOpenAt(ctx.now, ctx.calendar);
-    const handoffText = msg.handoff(ex.forbiddenTopic, outside, nextContactDay(ctx.now, ctx.calendar));
+    const handoffText = msg.handoff(ex.forbiddenTopic, outside, nextContactDay(ctx.now, ctx.calendar), ctx.demo);
     const handoffNote = {
       text,
       topic: ex.forbiddenTopic,
@@ -399,7 +419,7 @@ function finalizeViewing(conv: ConversationSnapshot, booking: BookingDraft, ctx:
     replies: [
       {
         type: 'text',
-        text: msg.viewingAccepted(property.name, booking.candidateTimes, outside, nextContactDay(ctx.now, ctx.calendar)),
+        text: msg.viewingAccepted(property.name, booking.candidateTimes, outside, nextContactDay(ctx.now, ctx.calendar), ctx.demo),
       },
     ],
     next: { ...conv, state: 'handed_off', booking: null },

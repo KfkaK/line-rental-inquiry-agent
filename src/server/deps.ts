@@ -3,7 +3,7 @@
  * 担当者へのメール通知は Resend。RESEND_API_KEY と STAFF_NOTIFY_EMAIL が揃わないときはログで代える。
  */
 import { createSupabaseRepositories } from '@/lib/db';
-import { optionalEnv } from '@/lib/env';
+import { isDemoMode, optionalEnv } from '@/lib/env';
 import { createLineMessenger } from '@/lib/line/messenger';
 import { generateAnswer } from '@/lib/llm/answer';
 import { createAnthropicClient, type Logger } from '@/lib/llm/client';
@@ -117,5 +117,6 @@ export function createProductionDeps(): Deps {
     notifier: createNotifier(),
     clock: () => new Date(),
     dailyCostLimitUsd: Number.isFinite(limit) ? limit : DEFAULT_DAILY_COST_LIMIT_USD,
+    demoMode: isDemoMode(),
   };
 }
