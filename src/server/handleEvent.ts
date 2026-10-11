@@ -7,7 +7,7 @@ import type { webhook } from '@line/bot-sdk';
 import { fromJst, isOpenAt, nextContactDay, toJst } from '@/domain/businessHours';
 import * as msg from '@/domain/messages';
 import { AI_RESUME_AFTER_MS, RATE_LIMIT_PER_MINUTE } from '@/domain/rules';
-import { decideTurn, type ButtonEvent, type ConversationSnapshot, type TurnEvent } from '@/domain/turn';
+import { decideTurn, isUnstarted, type ButtonEvent, type ConversationSnapshot, type TurnEvent } from '@/domain/turn';
 import type { ExtractionResult, ForbiddenTopic, Property, Slots } from '@/domain/types';
 import type { Conversation, Repositories, Verification } from '@/lib/db';
 import type { LineMessenger, LineMessage } from '@/lib/line/messenger';
@@ -90,6 +90,11 @@ export interface Deps {
   notifier: StaffNotifier;
   clock: () => Date;
   dailyCostLimitUsd: number;
+  /**
+   * 公開デモ（環境変数 DEMO_MODE=1）。あいさつと引き継ぎ・仮受付の文に「デモのため担当者からの連絡はありません」を足す。
+   * 省略は false（Deps を組み立てるほかの処理を壊さないよう必須にしない）
+   */
+  demoMode?: boolean;
 }
 
 /** 入力中アニメーションの秒数（LLM の待ち時間の体感を下げる。DESIGN.md 4.4） */
@@ -213,7 +218,12 @@ export async function handleEvent(event: webhook.Event, deps: Deps): Promise<voi
     turnEvent = { kind: 'text', text: userText, extraction: extraction.result };
   }
 
-  const decision = decideTurn(snapshot, turnEvent, { now: startedAt, calendar, properties });
+  // 友だち追加を経ずに話しかけられたときだけ、最初の発話に営業時間外の案内を足す（turn.ts）。
+  // あいさつを出した会話かは会話ログで決める。時間外で、まだ何も始まっていない会話のときだけ読む
+  const greeted =
+    event.type === 'message' && isUnstarted(snapshot) && !isOpenAt(startedAt, calendar) ? await hasAiMessage(repos, conv.id) : false;
+  const demo = deps.demoMode === true;
+  const decision = decideTurn(snapshot, turnEvent, { now: startedAt, calendar, properties, demo, greeted });
 
   // ---- 回答生成（提示物件への質問） ----
   const blocks: RenderBlock[] = [];
@@ -227,7 +237,7 @@ export async function handleEvent(event: webhook.Event, deps: Deps): Promise<voi
     }
     const handOff = (topic: ForbiddenTopic | null): string => {
       decision.handoffNote ??= { text: block.question, topic, propertyIds: block.targets.map((t) => t.property.id) };
-      return msg.handoff(topic, !isOpenAt(startedAt, calendar), nextContactDay(startedAt, calendar));
+      return msg.handoff(topic, !isOpenAt(startedAt, calendar), nextContactDay(startedAt, calendar), demo);
     };
     try {
       const answer = await deps.answer({ question: block.question, targets: block.targets, now: startedAt });
@@ -340,6 +350,19 @@ async function isFirstUserMessageSinceStaff(repos: Repositories, conv: Conversat
   } catch (error) {
     console.error('[handleEvent] 担当者対応中の発言の数え上げに失敗しました', error instanceof Error ? error.message : error);
     return true;
+  }
+}
+
+/**
+ * この会話に AI の発話が1件でもあるか（友だち追加のあいさつを出したか）。
+ * 読めなかったときは false（営業時間外の案内が重なるだけで、返信は止めない）
+ */
+async function hasAiMessage(repos: Repositories, conversationId: string): Promise<boolean> {
+  try {
+    return (await repos.messages.listByConversation(conversationId)).some((m) => m.role === 'ai');
+  } catch (error) {
+    console.error('[handleEvent] 会話ログの読み出しに失敗しました', error instanceof Error ? error.message : error);
+    return false;
   }
 }
 

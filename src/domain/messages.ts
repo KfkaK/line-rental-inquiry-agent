@@ -10,11 +10,21 @@ import type { ForbiddenTopic, Priority, Property, ScalarSlotKey } from './types'
 
 export const DISCLAIMER = '回答は参考情報です。契約条件は担当者からの案内が優先されます。';
 
-export function greeting(outsideHours: boolean): string {
+// ---------- 公開デモ（DEMO_MODE=1） ----------
+// 公開デモでは担当者からの連絡が実際には行われないので、「担当者からご連絡します」の約束を守れない。
+// 約束の文（内見は確定しない・担当者が確認する）はそのまま残し、実際の連絡が無いことを後ろに足す。
+
+/** 友だち追加のあいさつに足す一文 */
+export const DEMO_GREETING_NOTE = 'これはデモです。物件は架空のデータで、担当者からの連絡はありません。';
+/** 「担当者からご連絡します」の後ろに足す一文 */
+export const DEMO_NO_CONTACT_NOTE = '（デモのため、実際の連絡はありません）';
+
+export function greeting(outsideHours: boolean, demo = false): string {
   const lines = [
     '友だち追加ありがとうございます。',
     'このアカウントでは AI が一次対応し、担当者が内容を確認します。',
   ];
+  if (demo) lines.push(DEMO_GREETING_NOTE);
   if (outsideHours) lines.push('ただいま営業時間外ですが、物件探しはお手伝いできます。');
   lines.push('', 'ご希望のエリア（駅名）とご予算を教えてください。');
   return lines.join('\n');
@@ -123,12 +133,12 @@ export const TOPIC_LABEL: Record<ForbiddenTopic, string> = {
 };
 
 /** 担当者への引き継ぎ。営業時間外なら連絡日を具体的に示す（DESIGN.md 2.1「引き継ぎ」） */
-export function handoff(topic: ForbiddenTopic | null, outsideHours: boolean, contactDay: string): string {
+export function handoff(topic: ForbiddenTopic | null, outsideHours: boolean, contactDay: string, demo = false): string {
   const what = topic ? `${TOPIC_LABEL[topic]}については` : 'このご質問は';
   const when = outsideHours
     ? `ただいま営業時間外のため、${formatJstDay(contactDay)}に担当者からご連絡します。`
     : '営業時間内に担当者からご連絡します。';
-  return `${what}担当者が確認します。${when}\nそのあいだも物件探しはお手伝いできます。`;
+  return `${what}担当者が確認します。${when}${demo ? DEMO_NO_CONTACT_NOTE : ''}\nそのあいだも物件探しはお手伝いできます。`;
 }
 
 /** `exampleDay` は最初の候補日（YYYY-MM-DD）。例を固定の日付にすると過去の日付になるので、候補日から作る */
@@ -155,12 +165,14 @@ export function viewingAccepted(
   times: readonly string[],
   outsideHours: boolean,
   contactDay: string,
+  demo = false,
 ): string {
   const list = times.map((t, i) => `${'①②③'[i] ?? `${i + 1}.`} ${formatViewingTime(t)}`).join('\n');
   const when = outsideHours
     ? `ただいま営業時間外のため、${formatJstDay(contactDay)}に担当者から確定のご連絡をします。`
     : '担当者から確定のご連絡をします。';
-  return `「${propertyName}」の内見のご希望を受け付けました。\n${list}\n\nまだ予約は確定していません。${when}`;
+  // 「まだ予約は確定していません」はデモでも外さない（AI は内見を確定しない。不変条件 4）
+  return `「${propertyName}」の内見のご希望を受け付けました。\n${list}\n\nまだ予約は確定していません。${when}${demo ? DEMO_NO_CONTACT_NOTE : ''}`;
 }
 
 // ---------- 担当者が管理画面から送る文（AI ではなく担当者からの連絡だと分かるように頭に付ける） ----------

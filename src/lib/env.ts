@@ -22,6 +22,8 @@ export const ENV_NAMES = [
   'DAILY_COST_LIMIT_USD',
   /** ローカル開発専用: '1' で管理画面をインメモリのデモデータで開く（ログイン不要）。本番ビルドでは無視する */
   'ADMIN_PREVIEW',
+  /** '1' で公開デモの文面にする（あいさつと引き継ぎ・仮受付の文に「デモのため担当者からの連絡はありません」を足す） */
+  'DEMO_MODE',
 ] as const;
 export type EnvName = (typeof ENV_NAMES)[number];
 
@@ -33,4 +35,9 @@ export function requireEnv(name: EnvName): string {
 
 export function optionalEnv(name: EnvName): string | undefined {
   return process.env[name] || undefined;
+}
+
+/** 公開デモの文面にするか（DEMO_MODE=1 のときだけ。それ以外の値・未設定は false） */
+export function isDemoMode(): boolean {
+  return optionalEnv('DEMO_MODE') === '1';
 }
