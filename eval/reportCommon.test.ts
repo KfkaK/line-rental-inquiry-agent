@@ -120,6 +120,7 @@ describe('buildResultConfig', () => {
       models: { extract: 'claude-haiku-4-5', answer: 'claude-sonnet-5-5' },
       model: 'claude-haiku-4-5',
       modelOverride: false,
+      prompts: null,
       fake: false,
       limit: 5,
       ids: ['at-001', 'at-002'],

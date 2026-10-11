@@ -690,6 +690,7 @@ describe('buildResultFile', () => {
       models: { extract: 'claude-haiku-4-5', answer: null },
       model: 'claude-haiku-4-5',
       modelOverride: false,
+      prompts: null,
       fake: false,
       limit: 2,
       ids: ['ex-007'],

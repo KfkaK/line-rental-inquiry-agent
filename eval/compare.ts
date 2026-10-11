@@ -31,6 +31,8 @@ export interface ResultBase {
   modelOverride: boolean;
   extractModel: string;
   answerModel: string | null;
+  /** system プロンプトの版（`抽出` か `抽出+回答`）。古い結果ファイルは空 */
+  prompt: string;
   at: Date;
   caseCount: number;
   /** 全件ではない回: --limit/--ids の指定・費用上限での打ち切り・件数が評価セットの全件に満たない */
@@ -195,6 +197,8 @@ export function parseResultFile(json: unknown, file: string): ParseOutcome {
   const extractModel =
     typeof models?.extract === 'string' ? models.extract : typeof config.model === 'string' ? config.model : '（不明）';
   const answerModel = typeof models?.answer === 'string' ? models.answer : null;
+  const prompts = isRecord(config.prompts) ? config.prompts : null;
+  const prompt = [prompts?.extract, prompts?.answer].filter((v): v is string => typeof v === 'string').join('+');
   const cases = Array.isArray(json.cases) ? json.cases : null;
   const caseCount = asNumber(config.caseCount) ?? cases?.length ?? 0;
   if (caseCount === 0) return fail('0 件の回');
@@ -212,6 +216,7 @@ export function parseResultFile(json: unknown, file: string): ParseOutcome {
     modelOverride: config.modelOverride === true,
     extractModel,
     answerModel,
+    prompt,
     at,
     caseCount,
     partial,
@@ -232,9 +237,12 @@ export function parseResultFile(json: unknown, file: string): ParseOutcome {
 
 // ---------- 最新の回を選ぶ ----------
 
-/** 比べる行の単位: (評価セット, 構成, 辞書の有無)。`--model` で抽出のモデルを上書きした回は、そのモデルごとに別の行 */
+/**
+ * 比べる行の単位: (評価セット, 構成, 辞書の有無, プロンプトの版)。`--model` で抽出のモデルを上書きした回は、そのモデルごとに別の行。
+ * プロンプトの版を入れるのは、プロンプトを直す前後の回を「改善前後」の別の行として並べるため
+ */
 export function resultKey(r: CompareResult): string {
-  return [r.set, r.config, r.dictionary ? 'dict' : 'nodict', r.modelOverride ? r.extractModel : ''].join('|');
+  return [r.set, r.config, r.dictionary ? 'dict' : 'nodict', r.modelOverride ? r.extractModel : '', r.prompt].join('|');
 }
 
 /** 行の単位ごとに最新の1つ（同時刻ならファイル名が後のもの）。入力の順は問わない */
@@ -269,9 +277,11 @@ const formatDate = (at: Date): string => toJst(at).date;
 
 /** モデル: 抽出と回答生成が別なら `抽出 / 回答生成`（1モデル構成・条件抽出は1つだけ） */
 export function modelText(r: CompareResult): string {
-  return r.answerModel === null || r.config === 'one-model' || r.answerModel === r.extractModel
-    ? r.extractModel
-    : `${r.extractModel} / ${r.answerModel}`;
+  const models =
+    r.answerModel === null || r.config === 'one-model' || r.answerModel === r.extractModel
+      ? r.extractModel
+      : `${r.extractModel} / ${r.answerModel}`;
+  return r.prompt ? `${models}（プロンプト ${r.prompt}）` : models;
 }
 
 /** 例: `1508 / 2587 ms` */

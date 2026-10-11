@@ -15,7 +15,7 @@ import { EXTRACTION_CASES } from './datasets/extraction';
 import { SCENARIO_CASES } from './datasets/scenarios';
 import { runAttackCase } from './attack';
 import type { HarnessTurn, Pipeline } from './harness';
-import { CONFIG_MODELS, createPipeline, type PipelineOptions } from './pipelines';
+import { CONFIG_MODELS, createPipeline, promptVersions, type PipelineOptions } from './pipelines';
 import {
   describeError,
   formatLogEntry,
@@ -177,6 +177,8 @@ function metaFor(ctx: SetContext, set: EvalSet, at: Date, totalCases: number, cu
     // 条件抽出は回答生成を呼ばない
     models: { extract: args.model ?? configModels.extract, answer: set === 'extraction' ? null : configModels.answer },
     modelOverride: args.model !== null,
+    // 条件抽出は回答生成を呼ばないので、回答のプロンプトは版に入れない
+    prompts: set === 'extraction' ? { ...promptVersions(args.config), answer: null } : promptVersions(args.config),
     fake: args.fake,
     limit: args.limit,
     ids: args.ids,

@@ -66,6 +66,7 @@ function extraction({ row, ...rest }: Overrides<ExtractionRow> = {}): CompareRes
     modelOverride: false,
     extractModel: 'claude-haiku-4-5',
     answerModel: null,
+    prompt: '',
     at: AT('2026-10-15T12:30:00Z'),
     caseCount: 100,
     partial: false,
@@ -93,6 +94,7 @@ function attack({ row, ...rest }: Overrides<AttackRow> = {}): CompareResult {
     modelOverride: false,
     extractModel: 'claude-haiku-4-5',
     answerModel: 'claude-sonnet-5-5',
+    prompt: '',
     at: AT('2026-10-15T12:30:00Z'),
     caseCount: 40,
     partial: false,
@@ -110,6 +112,7 @@ function scenario({ row, ...rest }: Overrides<ScenarioRow> = {}): CompareResult 
     modelOverride: false,
     extractModel: 'claude-haiku-4-5',
     answerModel: 'claude-sonnet-5-5',
+    prompt: '',
     at: AT('2026-10-15T12:30:00Z'),
     caseCount: 15,
     partial: false,
@@ -144,6 +147,7 @@ describe('parseResultFile: 古い形式', () => {
       modelOverride: false,
       extractModel: 'claude-haiku-4-5',
       answerModel: null,
+      prompt: '', // 古い形式にはプロンプトの版が無い
       caseCount: 3,
       partial: false,
     });
@@ -253,6 +257,7 @@ describe('結果ファイルの書き手（--fake の実行）と読み手がつ
       modelOverride: false,
       extractModel: 'claude-haiku-4-5',
       answerModel: null,
+      prompt: expect.stringMatching(/^[0-9a-f]{8}$/), // 抽出のプロンプトの版（回答は呼ばないので入らない）
       caseCount: 3,
       partial: true, // --limit=3 は全件ではない
     });
@@ -323,6 +328,20 @@ describe('selectLatest', () => {
     const sonnet = extraction({ file: 'sonnet.json', modelOverride: true, extractModel: 'claude-sonnet-5-5', at: AT('2026-10-16T00:00:00Z') });
     expect(selectLatest([base, sonnet]).map((r) => r.file).sort()).toEqual(['base.json', 'sonnet.json']);
     expect(resultKey(base)).not.toBe(resultKey(sonnet));
+  });
+
+  it('プロンプトの版が違う回は別の行（プロンプトを直す前後を「改善前後」として並べる）', () => {
+    const before = extraction({ file: 'before.json', prompt: '705832aa' });
+    const after = extraction({ file: 'after.json', prompt: '1b2c3d4e', at: AT('2026-10-16T00:00:00Z') });
+    expect(selectLatest([before, after]).map((r) => r.file).sort()).toEqual(['after.json', 'before.json']);
+    expect(modelText(after)).toBe('claude-haiku-4-5（プロンプト 1b2c3d4e）');
+  });
+
+  it('結果ファイルの config.prompts を抽出（＋回答）の版として読む。無ければ空', () => {
+    const json = legacyFile() as { config: Record<string, unknown> };
+    const withPrompts = { ...json, config: { ...json.config, prompts: { extract: 'aaaa1111', answer: null } } };
+    expect(parseResultFile(withPrompts, 'x.json')).toMatchObject({ ok: true, result: { prompt: 'aaaa1111' } });
+    expect(parseResultFile(json, 'y.json')).toMatchObject({ ok: true, result: { prompt: '' } });
   });
 });
 

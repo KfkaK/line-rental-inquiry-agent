@@ -8,8 +8,11 @@
  *
  * one-model は回答を内部に預けるので、**会話（ケース・シナリオ）ごとに作り直す**。ほかの構成も同じく毎回作ってよい。
  */
+import { createHash } from 'node:crypto';
+import { ANSWER_SYSTEM_PROMPT } from '@/lib/llm/answer';
 import { createAnthropicClient, type LlmClient, type Logger } from '@/lib/llm/client';
-import { createCombinedPipeline } from '@/lib/llm/combined';
+import { COMBINED_SYSTEM_PROMPT, createCombinedPipeline } from '@/lib/llm/combined';
+import { EXTRACTION_SYSTEM_PROMPT } from '@/lib/llm/extract';
 import { MODEL_FAST, MODEL_SMART } from '@/lib/llm/models';
 import { createAnswerer, createExtractor } from '@/server/deps';
 import type { Pipeline } from './harness';
@@ -47,4 +50,15 @@ export function createPipeline(config: EvalConfig, options: PipelineOptions = {}
     extract: createExtractor(options.client, { model: extractModel, logger, useDictionary: options.useDictionary }),
     answer: createAnswerer(options.answerClient, { model: models.answer, logger }),
   };
+}
+
+/** プロンプトの版（system プロンプトの SHA-256 の先頭 8 桁）。プロンプトを直す前後の回を、比較表で別の行にするために結果ファイルに残す */
+export function promptVersion(prompt: string): string {
+  return createHash('sha256').update(prompt).digest('hex').slice(0, 8);
+}
+
+/** 構成が使う system プロンプトの版。one-model は抽出と回答で1つのプロンプト（answer は null） */
+export function promptVersions(config: EvalConfig): { extract: string; answer: string | null } {
+  if (config === 'one-model') return { extract: promptVersion(COMBINED_SYSTEM_PROMPT), answer: null };
+  return { extract: promptVersion(EXTRACTION_SYSTEM_PROMPT), answer: promptVersion(ANSWER_SYSTEM_PROMPT) };
 }

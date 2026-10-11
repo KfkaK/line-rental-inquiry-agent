@@ -100,6 +100,11 @@ export interface RunMeta {
   models: { extract: string; answer: string | null };
   /** `--model` で抽出のモデルを上書きした */
   modelOverride: boolean;
+  /**
+   * system プロンプトの版（eval/pipelines.ts の promptVersions）。条件抽出では answer は null。
+   * プロンプトを直す前後の回を比較表で別の行にする（DESIGN.md 10.2「プロンプト調整」）。省略は不明（古い結果）
+   */
+  prompts?: { extract: string; answer: string | null };
   fake: boolean;
   limit: number | null;
   ids: readonly string[] | null;
@@ -145,6 +150,7 @@ export interface ResultConfig {
   /** 抽出のモデル（古い形式の `config.model` と同じ。互換のために残す） */
   model: string;
   modelOverride: boolean;
+  prompts: { extract: string; answer: string | null } | null;
   fake: boolean;
   limit: number | null;
   ids: string[] | null;
@@ -165,6 +171,7 @@ export function buildResultConfig(meta: RunMeta, caseCount: number): ResultConfi
     models: meta.models,
     model: meta.models.extract,
     modelOverride: meta.modelOverride,
+    prompts: meta.prompts ?? null,
     fake: meta.fake,
     limit: meta.limit,
     ids: meta.ids === null ? null : [...meta.ids],
