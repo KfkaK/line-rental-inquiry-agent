@@ -13,7 +13,7 @@ const NOTE_CHARS = 40;
 
 /**
  * 朝の引き継ぎ一覧の1行。仮受付は /admin/viewings/{id}、引き継ぎ（仮受付の無い会話）は /admin/conversations/{id} へ。
- * 表示は 状態・時間外の印・届いた時刻・表示名 / 希望物件・候補日時 / AIが聞き取れなかったこと。
+ * 表示は 状態・時間外の印・デモの印（種まきしたデモ会話。本物の問い合わせと見分ける）・届いた時刻・表示名 / 希望物件・候補日時 / AIが聞き取れなかったこと。
  */
 export function MorningRow({
   item,
@@ -36,6 +36,7 @@ export function MorningRow({
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <StatusBadge status={v.status} />
           {v.receivedOutsideHours && <Chip>時間外</Chip>}
+          {v.isDemo && <Chip tone="outline">デモ</Chip>}
           <time dateTime={v.createdAt} className="text-sm text-muted">
             {formatJstDateTime(v.createdAt)}
           </time>
@@ -59,6 +60,7 @@ export function MorningRow({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <Chip tone="outline">引き継ぎ</Chip>
         {outsideHours && <Chip>時間外</Chip>}
+        {conversation.isDemo && <Chip tone="outline">デモ</Chip>}
         <time dateTime={item.at} className="text-sm text-muted">
           {formatJstDateTime(item.at)}
         </time>

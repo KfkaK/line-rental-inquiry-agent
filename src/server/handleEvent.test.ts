@@ -363,6 +363,15 @@ describe('handleEvent', () => {
       expect(textsOf(t.lastReply()).filter((text) => text.includes(OUTSIDE))).toEqual([]);
     });
 
+    it('営業時間内に友だち追加し（あいさつに案内なし）、時間外に最初に話しかけられたら案内する', async () => {
+      const t = setup({ now: NOON, extractions: [SEARCH] });
+      await handleEvent(followEvent(), t.deps);
+      expect(textsOf(t.lastReply())[0]).not.toContain(OUTSIDE);
+      t.advance(10 * 60 * 60 * 1000); // 木曜 22:00（営業時間外）
+      await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+      expect(textsOf(t.lastReply())[0]).toContain(OUTSIDE);
+    });
+
     it('営業時間内は、あいさつの有無にかかわらず案内しない', async () => {
       const t = setup({ now: NOON, extractions: [SEARCH] });
       await handleEvent(textEvent('渋谷で9万まで'), t.deps);

@@ -25,7 +25,8 @@ export function greeting(outsideHours: boolean, demo = false): string {
     'このアカウントでは AI が一次対応し、担当者が内容を確認します。',
   ];
   if (demo) lines.push(DEMO_GREETING_NOTE);
-  if (outsideHours) lines.push('ただいま営業時間外ですが、物件探しはお手伝いできます。');
+  // 営業時間外の案内は outsideHoursNote() と同じ一文（handleEvent が会話ログでこの一文を探して、最初の発話に重ねない）
+  if (outsideHours) lines.push(outsideHoursNote());
   lines.push('', 'ご希望のエリア（駅名）とご予算を教えてください。');
   return lines.join('\n');
 }

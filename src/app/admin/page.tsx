@@ -93,6 +93,7 @@ async function MorningContent() {
                   <Link href={`/admin/conversations/${c.id}`} className="block rounded-lg border border-line bg-surface p-4 hover:border-line-strong">
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                       <Chip tone="soft">AI停止中</Chip>
+                      {c.isDemo && <Chip tone="outline">デモ</Chip>}
                       <span className="font-semibold">{displayNameOf(c.displayName)}</span>
                     </div>
                     <p className="mt-2 text-sm leading-relaxed text-muted">

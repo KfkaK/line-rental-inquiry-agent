@@ -218,10 +218,13 @@ export async function handleEvent(event: webhook.Event, deps: Deps): Promise<voi
     turnEvent = { kind: 'text', text: userText, extraction: extraction.result };
   }
 
-  // 友だち追加を経ずに話しかけられたときだけ、最初の発話に営業時間外の案内を足す（turn.ts）。
-  // あいさつを出した会話かは会話ログで決める。時間外で、まだ何も始まっていない会話のときだけ読む
+  // 営業時間外の案内をまだ出していない会話だけ、最初の発話に案内を足す（turn.ts）。
+  // 時間外の友だち追加のあいさつは同じ一文を含むので、会話ログにその一文があるかで決める（営業時間内のあいさつは含まないので、
+  // その後に時間外で話しかけられたら案内する）。時間外で、まだ何も始まっていない会話のときだけ読む
   const greeted =
-    event.type === 'message' && isUnstarted(snapshot) && !isOpenAt(startedAt, calendar) ? await hasAiMessage(repos, conv.id) : false;
+    event.type === 'message' && isUnstarted(snapshot) && !isOpenAt(startedAt, calendar)
+      ? await hasShownOutsideHoursNote(repos, conv.id)
+      : false;
   const demo = deps.demoMode === true;
   const decision = decideTurn(snapshot, turnEvent, { now: startedAt, calendar, properties, demo, greeted });
 
@@ -354,12 +357,13 @@ async function isFirstUserMessageSinceStaff(repos: Repositories, conv: Conversat
 }
 
 /**
- * この会話に AI の発話が1件でもあるか（友だち追加のあいさつを出したか）。
+ * この会話の AI の発話に、営業時間外の案内（`msg.outsideHoursNote()`。時間外の友だち追加のあいさつにも同じ一文が入る）があるか。
  * 読めなかったときは false（営業時間外の案内が重なるだけで、返信は止めない）
  */
-async function hasAiMessage(repos: Repositories, conversationId: string): Promise<boolean> {
+async function hasShownOutsideHoursNote(repos: Repositories, conversationId: string): Promise<boolean> {
+  const note = msg.outsideHoursNote();
   try {
-    return (await repos.messages.listByConversation(conversationId)).some((m) => m.role === 'ai');
+    return (await repos.messages.listByConversation(conversationId)).some((m) => m.role === 'ai' && m.text.includes(note));
   } catch (error) {
     console.error('[handleEvent] 会話ログの読み出しに失敗しました', error instanceof Error ? error.message : error);
     return false;
