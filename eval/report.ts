@@ -287,6 +287,7 @@ const CATEGORY_LABELS: Record<ExtractionCategory, string> = {
   viewing: '内見',
   forbidden: '禁止トピック',
   other: 'その他',
+  tradeoff: 'トレードオフへの答え',
 };
 
 /** 単位の値を読める形に（エリアは駅・区、間取りは並べる） */
