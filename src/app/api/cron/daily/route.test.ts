@@ -3,9 +3,10 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DailyJobResult } from '@/server/demoSeed';
 
-const runDailyJob = vi.fn<(client: unknown, now: Date, options: { demo: boolean }) => Promise<DailyJobResult>>();
+type JobOptions = { demo: boolean; viewer?: { email: string; password: string } | null };
+const runDailyJob = vi.fn<(client: unknown, now: Date, options: JobOptions) => Promise<DailyJobResult>>();
 vi.mock('@/server/demoSeed', () => ({
-  runDailyJob: (client: unknown, now: Date, options: { demo: boolean }) => runDailyJob(client, now, options),
+  runDailyJob: (client: unknown, now: Date, options: JobOptions) => runDailyJob(client, now, options),
 }));
 
 const createServiceClient = vi.fn<() => unknown>();
@@ -20,6 +21,7 @@ const OK_RESULT: DailyJobResult = {
   ok: true,
   demo: { status: 'ok', value: { dryRun: false, properties: 190, lineUsers: 6, conversations: 6, messages: 30, viewingRequests: 3, deleted: { conversations: 6, lineUsers: 6 } } },
   purge: { status: 'ok', value: { deleted: 4 } },
+  viewer: { status: 'ok', value: { restored: true } },
 };
 
 function makeRequest(authorization: string | null): Request {
@@ -29,11 +31,18 @@ function makeRequest(authorization: string | null): Request {
 }
 
 describe('GET /api/cron/daily', () => {
-  const original = { cron: process.env.CRON_SECRET, demo: process.env.DEMO_MODE };
+  const original = {
+    cron: process.env.CRON_SECRET,
+    demo: process.env.DEMO_MODE,
+    viewerEmail: process.env.DEMO_VIEWER_EMAIL,
+    viewerPassword: process.env.DEMO_VIEWER_PASSWORD,
+  };
 
   beforeEach(() => {
     process.env.CRON_SECRET = SECRET;
     delete process.env.DEMO_MODE;
+    delete process.env.DEMO_VIEWER_EMAIL;
+    delete process.env.DEMO_VIEWER_PASSWORD;
     runDailyJob.mockReset();
     runDailyJob.mockResolvedValue(OK_RESULT);
     createServiceClient.mockReset();
@@ -47,6 +56,10 @@ describe('GET /api/cron/daily', () => {
     else process.env.CRON_SECRET = original.cron;
     if (original.demo === undefined) delete process.env.DEMO_MODE;
     else process.env.DEMO_MODE = original.demo;
+    if (original.viewerEmail === undefined) delete process.env.DEMO_VIEWER_EMAIL;
+    else process.env.DEMO_VIEWER_EMAIL = original.viewerEmail;
+    if (original.viewerPassword === undefined) delete process.env.DEMO_VIEWER_PASSWORD;
+    else process.env.DEMO_VIEWER_PASSWORD = original.viewerPassword;
     vi.restoreAllMocks();
   });
 
@@ -83,16 +96,44 @@ describe('GET /api/cron/daily', () => {
     const [client, now, options] = runDailyJob.mock.calls[0];
     expect(client).toBe(CLIENT);
     expect(now).toBeInstanceOf(Date);
-    expect(options).toEqual({ demo: false });
+    expect(options).toEqual({ demo: false, viewer: null });
   });
 
   it('DEMO_MODE=1 ならデモの作り直しも指定する', async () => {
     process.env.DEMO_MODE = '1';
     await GET(makeRequest(`Bearer ${SECRET}`));
-    expect(runDailyJob.mock.calls[0][2]).toEqual({ demo: true });
+    expect(runDailyJob.mock.calls[0][2]).toEqual({ demo: true, viewer: null });
     process.env.DEMO_MODE = 'true';
     await GET(makeRequest(`Bearer ${SECRET}`));
-    expect(runDailyJob.mock.calls[1][2]).toEqual({ demo: false });
+    expect(runDailyJob.mock.calls[1][2]).toEqual({ demo: false, viewer: null });
+  });
+
+  it('閲覧用アカウントの環境変数が両方あるときだけ、資格情報を日次の処理に渡す（片方だけなら null）', async () => {
+    process.env.DEMO_MODE = '1';
+    process.env.DEMO_VIEWER_EMAIL = 'viewer@example.com';
+    await GET(makeRequest(`Bearer ${SECRET}`));
+    expect(runDailyJob.mock.calls[0][2]).toEqual({ demo: true, viewer: null });
+
+    process.env.DEMO_VIEWER_PASSWORD = 'public-demo-pass';
+    await GET(makeRequest(`Bearer ${SECRET}`));
+    expect(runDailyJob.mock.calls[1][2]).toEqual({ demo: true, viewer: { email: 'viewer@example.com', password: 'public-demo-pass' } });
+  });
+
+  it('閲覧用アカウントの段階が失敗したら 500。応答にもログにもパスワード・メールアドレスは出さない（結果に含まれないため）', async () => {
+    process.env.DEMO_MODE = '1';
+    process.env.DEMO_VIEWER_EMAIL = 'viewer@example.com';
+    process.env.DEMO_VIEWER_PASSWORD = 'public-demo-pass';
+    runDailyJob.mockResolvedValue({ ...OK_RESULT, ok: false, viewer: { status: 'error', message: '役割が viewer ではないので、パスワードは変えていません' } });
+    const response = await GET(makeRequest(`Bearer ${SECRET}`));
+    expect(response.status).toBe(500);
+    const text = await response.text();
+    expect(text).toContain('"viewer":{"status":"error"');
+    expect(text).not.toContain('public-demo-pass');
+    expect(text).not.toContain('viewer@example.com');
+    const logged = [...vi.mocked(console.log).mock.calls, ...vi.mocked(console.error).mock.calls].flat().join('\n');
+    expect(logged).toContain('[cron daily] viewer が失敗しました');
+    expect(logged).not.toContain('public-demo-pass');
+    expect(logged).not.toContain('viewer@example.com');
   });
 
   it('段階が失敗していたら 500（結果の本文は返す）', async () => {

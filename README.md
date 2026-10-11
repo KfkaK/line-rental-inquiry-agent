@@ -9,7 +9,7 @@ AI 受託開発の商品見本として 4 週間で作りました（2026-10）�
 | | |
 |---|---|
 | LINE で試す | 友だち追加: https://line.me/R/ti/p/@042kksku （QR コード: 公開前に記入） |
-| 管理画面 | https://line-rental-agent.vercel.app/admin （閲覧用アカウント: 公開前に記入。読み取り専用・デモ会話だけ） |
+| 管理画面 | https://line-rental-agent.vercel.app/admin （閲覧用アカウント: 公開前に記入。ログイン画面にも表示しています。読み取り専用で、見られるのは架空のデモ会話だけです） |
 | デモ動画 | 公開前に記入 |
 
 ## 何が違うのか
@@ -120,3 +120,6 @@ npm run eval:compare                          # eval/results から比較表を�
 - [docs/意思決定ログ.md](docs/意思決定ログ.md): 何をいつなぜ決めたか（番号つき）
 - [docs/引き継ぎ書.md](docs/引き継ぎ書.md): いまの状態と次にやること
 - [eval/README.md](eval/README.md): 評価セット・指標の定義・走らせ方
+- [docs/並び順の監査.md](docs/並び順の監査.md): 並び順を人の目で確かめるシート（nDCG の代わり）
+
+このリポジトリは、非公開の開発用リポジトリの履歴を写したものです（作者のメールアドレスだけを GitHub の noreply に書き換えています）。ドキュメントやコミットにある PR 番号（例: `KfkaK/line-rental-agent#19`）は、開発用リポジトリのものです。
