@@ -133,6 +133,29 @@ export function scoreExtractionCase(c: ExtractionCase, actual: ExtractionResult)
 
 // ---------- 集計 ----------
 
+/** 優先度判定の正確さの母数になる単位: 手がかりのある発話で、値が一致して正解に単位がある（優先度だけの変更を含む）もの */
+function cueUnitsOf(scores: readonly Pick<ExtractionCaseScore, 'priorityCue' | 'units'>[]): SlotUnitResult[] {
+  return scores.filter((s) => s.priorityCue).flatMap((s) => s.units.filter((u) => u.valueOk && u.expected !== null));
+}
+
+const priorityRatio = (units: readonly SlotUnitResult[]): Ratio => ratio(units.filter((u) => u.priorityOk).length, units.length);
+
+/**
+ * 優先度判定の正確さを、手がかりの出どころで2つに分ける（全体 = 単発 ＋ トレードオフ）:
+ * - cue: 単発の手がかり（category ≠ tradeoff かつ priorityCue）。「絶対」「できれば」「なくてもいい」など
+ * - tradeoff: トレードオフの質問への自由文の答え（category = tradeoff かつ priorityCue）
+ * 結果ファイルのケースごとの採点（score）から再計算できる（eval:compare が、分割の無い古い結果ファイルにも使う）
+ */
+export function summarizePriorityByKind(scores: readonly Pick<ExtractionCaseScore, 'category' | 'priorityCue' | 'units'>[]): {
+  cue: Ratio;
+  tradeoff: Ratio;
+} {
+  return {
+    cue: priorityRatio(cueUnitsOf(scores.filter((s) => s.category !== 'tradeoff'))),
+    tradeoff: priorityRatio(cueUnitsOf(scores.filter((s) => s.category === 'tradeoff'))),
+  };
+}
+
 export interface ExtractionSummary {
   cases: number;
   /** 発話単位の完全一致 */
@@ -142,6 +165,10 @@ export interface ExtractionSummary {
   slotValue: Ratio;
   /** 優先度判定の正確さ（手がかりのある発話・変わった単位のうち値が一致したもの） */
   priority: Ratio;
+  /** priority のうち、単発の手がかり（category ≠ tradeoff）の発話 */
+  priorityCue: Ratio;
+  /** priority のうち、トレードオフへの答え（category = tradeoff）の発話 */
+  priorityTradeoff: Ratio;
   /** 正解が禁止トピックの発話で、同じ話題を返した割合 */
   forbiddenRecall: Ratio;
   /** 禁止トピックでない発話に禁止トピックを付けた件数 */
@@ -173,7 +200,7 @@ export function summarizeExtraction(
   };
   const expectedTopic = (i: number) => cases[i].expected.forbiddenTopic ?? null;
   const valueUnits = scores.flatMap((s) => s.units.filter((u) => u.valueChanged));
-  const cueUnits = scores.filter((s) => s.priorityCue).flatMap((s) => s.units.filter((u) => u.valueOk && u.expected !== null));
+  const byKind = summarizePriorityByKind(scores);
   const byCategory: Partial<Record<ExtractionCategory, Ratio>> = {};
   for (const s of scores) {
     const r = byCategory[s.category] ?? ratio(0, 0);
@@ -184,7 +211,9 @@ export function summarizeExtraction(
     exact: count((i) => scores[i].exact),
     intent: count((i) => scores[i].intentOk),
     slotValue: ratio(valueUnits.filter((u) => u.valueOk).length, valueUnits.length),
-    priority: ratio(cueUnits.filter((u) => u.priorityOk).length, cueUnits.length),
+    priority: priorityRatio(cueUnitsOf(scores)),
+    priorityCue: byKind.cue,
+    priorityTradeoff: byKind.tradeoff,
     forbiddenRecall: count(
       (i) => scores[i].forbiddenOk,
       (i) => expectedTopic(i) !== null,

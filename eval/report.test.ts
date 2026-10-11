@@ -5,9 +5,11 @@ import { describe, expect, it } from 'vitest';
 import { baseSlots, makeProperty } from '@/domain/fixtures';
 import type { ExtractionResult } from '@/domain/types';
 import { fallbackExtraction } from '@/lib/llm/extract';
-import { MODEL_FAST } from '@/lib/llm/models';
+import { MODEL_FAST, MODEL_SMART } from '@/lib/llm/models';
 import {
+  DEFAULT_MAX_COST_USD,
   DEFAULT_OUT_DIR,
+  EVAL_SET_ARGS,
   buildResultFile,
   countErrors,
   describeError,
@@ -23,10 +25,13 @@ import {
   resultFileName,
   scoreRun,
   selectCases,
+  setsOf,
   summarizeRuns,
   type CaseRun,
+  type ExtractionReportInput,
   type RawCaseRun,
 } from './report';
+import type { RunMeta } from './reportCommon';
 import { ratio } from './score';
 import type { ExtractionCase } from './types';
 
@@ -61,30 +66,66 @@ function makeRaw(c: ExtractionCase, actual: ExtractionResult, overrides: Partial
 
 const AT = new Date('2026-10-15T21:30:00+09:00');
 
+/** 実行の設定（本番の two-model・辞書あり・全件・実 API）。必要な項目だけ上書きする */
+function makeMeta(overrides: Partial<RunMeta> = {}): RunMeta {
+  return {
+    set: 'extraction',
+    config: 'two-model',
+    dictionary: true,
+    models: { extract: MODEL_FAST, answer: null },
+    modelOverride: false,
+    fake: false,
+    limit: null,
+    ids: null,
+    totalCases: 4,
+    maxCostUsd: 2,
+    cutoff: null,
+    at: AT,
+    ...overrides,
+  };
+}
+
 // ---------- parseEvalArgs ----------
 
 describe('parseEvalArgs', () => {
-  it('省略時の既定: extraction・MODEL_FAST・全件・実 API・eval/results', () => {
+  it('省略時の既定: extraction・two-model・辞書あり・全件・実 API・費用上限 $2・eval/results', () => {
     expect(parseEvalArgs([])).toEqual({
       set: 'extraction',
-      model: MODEL_FAST,
+      config: 'two-model',
+      dictionary: true,
+      model: null,
       limit: null,
       ids: null,
       fake: false,
+      maxCostUsd: 2,
       out: 'eval/results',
     });
     expect(DEFAULT_OUT_DIR).toBe('eval/results');
+    expect(DEFAULT_MAX_COST_USD).toBe(2);
   });
 
   it('すべてのオプションを読む', () => {
     expect(
-      parseEvalArgs(['--set=extraction', '--model=claude-sonnet-5-5', '--limit=5', '--ids=ex-001,ex-002', '--fake', '--out=tmp/out']),
+      parseEvalArgs([
+        '--set=extraction',
+        '--config=haiku-answer',
+        '--no-dictionary',
+        '--model=claude-sonnet-5-5',
+        '--limit=5',
+        '--ids=ex-001,ex-002',
+        '--fake',
+        '--max-cost=0.5',
+        '--out=tmp/out',
+      ]),
     ).toEqual({
       set: 'extraction',
+      config: 'haiku-answer',
+      dictionary: false,
       model: 'claude-sonnet-5-5',
       limit: 5,
       ids: ['ex-001', 'ex-002'],
       fake: true,
+      maxCostUsd: 0.5,
       out: 'tmp/out',
     });
   });
@@ -93,15 +134,63 @@ describe('parseEvalArgs', () => {
     expect(parseEvalArgs(['--ids=ex-010, ex-002 ,ex-001']).ids).toEqual(['ex-010', 'ex-002', 'ex-001']);
   });
 
-  it('--set は extraction だけ', () => {
+  it('--set は extraction・attack・scenario・all', () => {
+    for (const set of EVAL_SET_ARGS) expect(parseEvalArgs([`--set=${set}`]).set).toBe(set);
     expect(() => parseEvalArgs(['--set=answer'])).toThrow('--set');
     expect(() => parseEvalArgs(['--set='])).toThrow('--set');
     expect(() => parseEvalArgs(['--set'])).toThrow('--set');
   });
 
+  it('setsOf: all は3つを extraction → attack → scenario の順に、ほかはそのセットだけ', () => {
+    expect(setsOf('all')).toEqual(['extraction', 'attack', 'scenario']);
+    expect(setsOf('attack')).toEqual(['attack']);
+  });
+
+  it('--config は定義された3つだけ', () => {
+    for (const config of ['two-model', 'haiku-answer', 'one-model']) expect(parseEvalArgs([`--config=${config}`]).config).toBe(config);
+    expect(() => parseEvalArgs(['--config=three-model'])).toThrow('--config');
+    expect(() => parseEvalArgs(['--config='])).toThrow('--config');
+    expect(() => parseEvalArgs(['--config'])).toThrow('--config');
+  });
+
+  it('--no-dictionary は one-model と組み合わせると引数の誤り（順は問わない）。two-model・haiku-answer なら通る', () => {
+    expect(() => parseEvalArgs(['--no-dictionary', '--config=one-model'])).toThrow('--no-dictionary');
+    expect(() => parseEvalArgs(['--config=one-model', '--no-dictionary'])).toThrow('one-model');
+    expect(parseEvalArgs(['--no-dictionary']).dictionary).toBe(false);
+    expect(parseEvalArgs(['--no-dictionary', '--config=haiku-answer']).dictionary).toBe(false);
+    expect(parseEvalArgs(['--config=one-model']).dictionary).toBe(true);
+  });
+
+  it('--no-dictionary と --fake は値を取らない', () => {
+    expect(() => parseEvalArgs(['--no-dictionary=true'])).toThrow('--no-dictionary');
+    expect(() => parseEvalArgs(['--fake=true'])).toThrow('--fake');
+  });
+
+  it('--model は --set=extraction（省略時を含む）のときだけ。attack・scenario・all では誤り', () => {
+    expect(parseEvalArgs(['--model=claude-sonnet-5-5']).model).toBe('claude-sonnet-5-5');
+    expect(parseEvalArgs(['--set=extraction', '--model=x']).model).toBe('x');
+    for (const set of ['attack', 'scenario', 'all']) expect(() => parseEvalArgs([`--set=${set}`, '--model=x']), set).toThrow('--model');
+    expect(() => parseEvalArgs(['--model=x', '--set=attack'])).toThrow('--model');
+  });
+
+  it('--ids は --set=all では誤り（評価セットごとに id が違う）。--limit は all でも使える', () => {
+    expect(() => parseEvalArgs(['--set=all', '--ids=ex-001'])).toThrow('--ids');
+    expect(parseEvalArgs(['--set=all', '--limit=3']).limit).toBe(3);
+    expect(parseEvalArgs(['--set=attack', '--ids=at-001']).ids).toEqual(['at-001']);
+  });
+
+  it('--max-cost は 0 より大きい数（USD）。小数も書ける', () => {
+    expect(parseEvalArgs(['--max-cost=2']).maxCostUsd).toBe(2);
+    expect(parseEvalArgs(['--max-cost=0.005']).maxCostUsd).toBe(0.005);
+    expect(parseEvalArgs(['--max-cost=10.5']).maxCostUsd).toBe(10.5);
+    const bads = ['--max-cost=0', '--max-cost=0.0', '--max-cost=-1', '--max-cost=abc', '--max-cost=', '--max-cost', '--max-cost=1e3', '--max-cost=.5', '--max-cost=$2'];
+    for (const bad of bads) expect(() => parseEvalArgs([bad]), bad).toThrow('--max-cost');
+  });
+
   it('未知のオプションと位置引数は例外', () => {
     expect(() => parseEvalArgs(['--unknown'])).toThrow('未知のオプション: --unknown');
     expect(() => parseEvalArgs(['--fake-mode'])).toThrow('未知のオプション');
+    expect(() => parseEvalArgs(['--no-dict'])).toThrow('未知のオプション');
     expect(() => parseEvalArgs(['extraction'])).toThrow('未知のオプション: extraction');
     expect(() => parseEvalArgs(['-h'])).toThrow('未知のオプション');
   });
@@ -121,15 +210,15 @@ describe('parseEvalArgs', () => {
     expect(() => parseEvalArgs(['--ids=ex-001,ex-002,ex-001'])).toThrow('重複');
   });
 
-  it('値が要るオプションの値が空、--fake に値を付けたら例外', () => {
+  it('値が要るオプションの値が空なら例外', () => {
     expect(() => parseEvalArgs(['--model='])).toThrow('--model');
     expect(() => parseEvalArgs(['--model'])).toThrow('--model');
     expect(() => parseEvalArgs(['--out='])).toThrow('--out');
-    expect(() => parseEvalArgs(['--fake=true'])).toThrow('--fake');
   });
 
   it('同じオプションを2回書いたら後のものが勝つ', () => {
     expect(parseEvalArgs(['--limit=3', '--limit=5']).limit).toBe(5);
+    expect(parseEvalArgs(['--config=one-model', '--config=two-model']).config).toBe('two-model');
   });
 });
 
@@ -293,20 +382,30 @@ describe('formatRate・formatFraction', () => {
 // ---------- 結果ファイル名・日時 ----------
 
 describe('resultFileName・formatJst', () => {
-  it('extraction-<モデル>-<JST の日付>-<JST の時分>.json', () => {
-    expect(resultFileName('extraction', 'claude-haiku-4-5', AT)).toBe('extraction-claude-haiku-4-5-20261015-2130.json');
+  it('<set>-<config>-<JST の日付>-<JST の時分>.json', () => {
+    expect(resultFileName('extraction', 'two-model', AT)).toBe('extraction-two-model-20261015-2130.json');
+    expect(resultFileName('attack', 'one-model', AT)).toBe('attack-one-model-20261015-2130.json');
+    expect(resultFileName('scenario', 'haiku-answer', AT)).toBe('scenario-haiku-answer-20261015-2130.json');
+  });
+
+  it('辞書なしは -nodict、--fake は -fake を、この順で日時の前に入れる', () => {
+    expect(resultFileName('extraction', 'two-model', AT, { dictionary: false })).toBe('extraction-two-model-nodict-20261015-2130.json');
+    expect(resultFileName('extraction', 'two-model', AT, { fake: true })).toBe('extraction-two-model-fake-20261015-2130.json');
+    expect(resultFileName('extraction', 'haiku-answer', AT, { dictionary: false, fake: true })).toBe(
+      'extraction-haiku-answer-nodict-fake-20261015-2130.json',
+    );
+    expect(resultFileName('attack', 'two-model', AT, { dictionary: true, fake: false })).toBe('attack-two-model-20261015-2130.json');
   });
 
   it('日時は JST（UTC の日付が違っても JST の日付）', () => {
     // 2026-10-15 20:00 UTC = 2026-10-16 05:00 JST
-    expect(resultFileName('extraction', 'claude-haiku-4-5', new Date('2026-10-15T20:00:00Z'))).toBe('extraction-claude-haiku-4-5-20261016-0500.json');
+    expect(resultFileName('extraction', 'two-model', new Date('2026-10-15T20:00:00Z'))).toBe('extraction-two-model-20261016-0500.json');
     expect(formatJst(new Date('2026-10-15T20:00:00Z'))).toBe('2026-10-16 05:00');
     expect(formatJst(AT)).toBe('2026-10-15 21:30');
   });
 
-  it('モデル ID にファイル名に使えない文字があれば _ にする。--fake は目印を入れる', () => {
+  it('構成名にファイル名に使えない文字があれば _ にする', () => {
     expect(resultFileName('extraction', 'a/b:c', AT)).toBe('extraction-a_b_c-20261015-2130.json');
-    expect(resultFileName('extraction', 'claude-haiku-4-5', AT, { fake: true })).toBe('extraction-claude-haiku-4-5-fake-20261015-2130.json');
   });
 });
 
@@ -366,7 +465,7 @@ describe('formatExtractionReport', () => {
   ];
   const runs = raws.map(scoreRun);
   const { summary, measures } = summarizeRuns(runs);
-  const base = { set: 'extraction' as const, model: MODEL_FAST, fake: false, limit: null, ids: null, at: AT, runs, summary, measures };
+  const base: ExtractionReportInput = { ...makeMeta(), runs, summary, measures };
   const report = formatExtractionReport(base);
   const lines = report.split('\n');
 
@@ -500,6 +599,58 @@ describe('formatExtractionReport', () => {
     expect(text).not.toContain('### ');
   });
 
+  it('優先度判定の正確さは、単発の手がかりとトレードオフへの答えに分けて出す', () => {
+    // ex-002 は category=priority（単発）で値が合った単位の優先度が違う → 単発 0/1。トレードオフのケースは無いので —
+    expect(lines).toContain('| 　うち単発の手がかり（トレードオフ以外） | 0.0% | 0/1 |');
+    expect(lines).toContain('| 　うちトレードオフへの答え（tradeoff） | — | — |');
+    const tradeoff = makeCase({
+      id: 'ex-050',
+      category: 'tradeoff',
+      priorityCue: true,
+      slots: baseSlots({ floorMin: { value: 2, priority: 'want' } }),
+      expected: { intent: 'conditions', ops: [{ op: 'setPriority', key: 'floorMin', priority: 'must' }] },
+    });
+    const rs = [scoreRun(makeRaw(tradeoff, result({ ops: [{ op: 'setPriority', key: 'floorMin', priority: 'must' }] })))];
+    const text = formatExtractionReport({ ...base, runs: rs, ...summarizeRuns(rs) });
+    expect(text).toContain('| 優先度判定の正確さ | 100.0% | 1/1 |');
+    expect(text).toContain('| 　うち単発の手がかり（トレードオフ以外） | — | — |');
+    expect(text).toContain('| 　うちトレードオフへの答え（tradeoff） | 100.0% | 1/1 |');
+  });
+
+  it('設定: 構成・辞書なし・--model の上書き・費用の上限・全件でないときの件数', () => {
+    const text = formatExtractionReport({
+      ...base,
+      ...makeMeta({
+        config: 'haiku-answer',
+        dictionary: false,
+        modelOverride: true,
+        models: { extract: MODEL_SMART, answer: null },
+        totalCases: 100,
+        maxCostUsd: 0.5,
+      }),
+    });
+    expect(text).toContain('- 構成: haiku-answer');
+    expect(text).toContain('- モデル: claude-sonnet-5-5');
+    expect(text).toContain('- `--model` で抽出のモデルを上書きしています');
+    expect(text).toContain('- 辞書: なし（`--no-dictionary`');
+    expect(text).toContain('- 件数: 4（全 100 件のうち）');
+    expect(text).toContain('- 費用の上限: $0.5（--max-cost');
+    // haiku-answer の条件抽出は two-model と同じ呼び出し
+    expect(text).toContain('haiku-answer の条件抽出は two-model と同じです');
+    expect(report).not.toContain('haiku-answer の条件抽出');
+    expect(report).toContain('- 構成: two-model');
+    expect(report).not.toContain('辞書: なし');
+  });
+
+  it('費用の上限で打ち切った回は、設定に打ち切りの件数と累計の費用を出す', () => {
+    const text = formatExtractionReport({
+      ...base,
+      ...makeMeta({ totalCases: 100, cutoff: { reason: 'maxCost', spentUsd: 0.0123, maxCostUsd: 0.01, completed: 4, planned: 100 } }),
+    });
+    expect(text).toContain('- **打ち切り**: 費用が上限 $0.01（--max-cost）に達したため、100 件のうち 4 件で止めました（累計 $0.0123）');
+    expect(report).not.toContain('打ち切り');
+  });
+
   it('ケースが 0 件でも整形できる（評価セットが空のとき）', () => {
     const text = formatExtractionReport({ ...base, runs: [], ...summarizeRuns([]) });
     expect(text).toContain('- 件数: 0');
@@ -521,12 +672,7 @@ describe('buildResultFile', () => {
 
   it('設定・集計・計測・エラー件数・ケースごとの記録を持ち、JSON にできる', () => {
     const file = buildResultFile({
-      set: 'extraction',
-      model: 'claude-haiku-4-5',
-      fake: false,
-      limit: 2,
-      ids: ['ex-007'],
-      at: AT,
+      ...makeMeta({ limit: 2, ids: ['ex-007'], totalCases: 100 }),
       runs,
       ...summarizeRuns(runs),
     }) as Record<string, unknown>;
@@ -539,11 +685,20 @@ describe('buildResultFile', () => {
     };
     expect(parsed.config).toEqual({
       set: 'extraction',
+      config: 'two-model',
+      dictionary: true,
+      models: { extract: 'claude-haiku-4-5', answer: null },
       model: 'claude-haiku-4-5',
+      modelOverride: false,
+      prompts: null,
       fake: false,
       limit: 2,
       ids: ['ex-007'],
       caseCount: 2,
+      totalCases: 100,
+      maxCostUsd: 2,
+      cutoff: null,
+      usdJpy: 150,
       at: '2026-10-15T12:30:00.000Z',
       atJst: '2026-10-15 21:30',
     });

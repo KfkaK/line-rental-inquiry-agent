@@ -5,12 +5,15 @@ import { verifyAnswer } from '../../domain/verify';
 import {
   ANSWER_EXAMPLE_NOW,
   ANSWER_EXAMPLES,
+  ANSWER_RULES_PROMPT,
   ANSWER_SYSTEM_PROMPT,
   ANSWER_TOOL_NAME,
   buildAnswerTool,
   buildAnswerUserMessage,
+  finalizeAnswer,
   generateAnswer,
   type AnswerTarget,
+  type FinalizeAnswerParams,
   type GenerateAnswerParams,
 } from './answer';
 import { createFakeLlmClient, LlmToolCallError, type FakeResponse } from './client';
@@ -421,5 +424,72 @@ describe('出力例（システムプロンプトの few-shot）', () => {
     for (const topic of FORBIDDEN_TOPICS) expect(ANSWER_SYSTEM_PROMPT).toContain(`- ${topic}:`);
     expect(ANSWER_SYSTEM_PROMPT).toContain(ANSWER_TOOL_NAME);
     expect(ANSWER_SYSTEM_PROMPT).toContain('<user_message>');
+  });
+
+  it('システムプロンプトは規則の本体（ANSWER_RULES_PROMPT。1モデル構成も使う）を含み、規則の本体に出力例は含まない', () => {
+    expect(ANSWER_SYSTEM_PROMPT).toContain(ANSWER_RULES_PROMPT);
+    expect(ANSWER_RULES_PROMPT.startsWith('# 答えてよいこと')).toBe(true);
+    expect(ANSWER_RULES_PROMPT.endsWith('- 内見のおすすめ・ほかの物件の提案はしません')).toBe(true);
+    expect(ANSWER_RULES_PROMPT).not.toContain('# 出力例');
+    expect(ANSWER_RULES_PROMPT).not.toContain('# データの扱い');
+  });
+});
+
+describe('finalizeAnswer（generateAnswer と1モデル構成が共有する後処理）', () => {
+  const usage = { inputTokens: 7, outputTokens: 3, cacheWriteTokens: 0, cacheReadTokens: 1 };
+  const params = (toolInput: unknown, over: Partial<FinalizeAnswerParams> = {}): FinalizeAnswerParams => ({
+    toolInput,
+    question: 'ペット飼えますか？',
+    targets: [T1],
+    now: NOW,
+    logger: logger(),
+    model: 'claude-sonnet-5-5-20260101',
+    usage,
+    latencyMs: 12,
+    costUsd: 0.5,
+    ...over,
+  });
+  const tool = (over: Record<string, unknown> = {}) => ({ answer: '1番目の物件はペット可です。', needsStaff: false, forbiddenTopic: null, ...over });
+
+  it('渡された使用量・時間・費用・モデルをそのまま結果に載せる（record のモデルも同じ）', () => {
+    const out = finalizeAnswer(params(tool()));
+    expect(out).toMatchObject({ text: '1番目の物件はペット可です。', handoff: null, verification: 'ok', usage, latencyMs: 12, costUsd: 0.5, model: 'claude-sonnet-5-5-20260101' });
+    expect(out.record).toMatchObject({ status: 'answered', model: 'claude-sonnet-5-5-20260101' });
+  });
+
+  it('使用量・時間・費用が 0 でも（別の呼び出しで計上済みのとき）そのまま 0 で返す', () => {
+    const out = finalizeAnswer(params(tool(), { usage: EMPTY_USAGE, latencyMs: 0, costUsd: 0 }));
+    expect(out.usage).toEqual(EMPTY_USAGE);
+    expect(out.latencyMs).toBe(0);
+    expect(out.costUsd).toBe(0);
+  });
+
+  it('禁止トピック・根拠の不一致・形の不正の分岐は generateAnswer と同じ', () => {
+    const forbidden = finalizeAnswer(params(tool({ answer: '', needsStaff: true, forbiddenTopic: 'vacancy' })));
+    expect(forbidden).toMatchObject({ text: null, handoff: { topic: 'vacancy' }, verification: 'ok' });
+    expect(forbidden.record.status).toBe('forbidden');
+
+    const log = logger();
+    const unverified = finalizeAnswer(params(tool({ answer: '家賃は50,000円です。' }), { logger: log }));
+    expect(unverified).toMatchObject({ text: null, handoff: { topic: null }, verification: 'replaced' });
+    expect(unverified.record.issues).toEqual([{ kind: 'number', token: '50,000円' }]);
+    expect(log.error).toHaveBeenCalledTimes(1);
+
+    const invalidLog = logger();
+    const invalid = finalizeAnswer(params({ answer: '1番目の物件はペット可です。' }, { logger: invalidLog }));
+    expect(invalid).toMatchObject({ text: null, verification: 'replaced', costUsd: 0.5 });
+    expect(invalid.record).toMatchObject({ status: 'invalid', rawAnswer: null });
+    expect(invalidLog.error).toHaveBeenCalledWith('[answer] 出力の検証に失敗しました', expect.anything());
+  });
+
+  it('generateAnswer の結果は、同じツール入力・使用量での finalizeAnswer の結果と一致する', async () => {
+    const inputs = [tool(), tool({ answer: '家賃は50,000円です。' }), tool({ answer: '物件情報に駐輪場の記載はありません。' }), { answer: 1 }];
+    for (const input of inputs) {
+      const { outcome } = await run({ input });
+      const expected = finalizeAnswer(
+        params(input, { model: MODEL_SMART, usage: outcome.usage, latencyMs: 5, costUsd: costUsd(MODEL_SMART, outcome.usage) }),
+      );
+      expect(outcome).toEqual(expected);
+    }
   });
 });

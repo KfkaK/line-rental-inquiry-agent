@@ -12,6 +12,7 @@ import {
   scoreExtractionCase,
   summarizeExtraction,
   summarizeMeasures,
+  summarizePriorityByKind,
   type ExtractionCaseScore,
 } from './score';
 import type { ExtractionCase } from './types';
@@ -497,6 +498,49 @@ describe('summarizeExtraction', () => {
       ),
     ]);
     expect(summary.priority).toEqual({ correct: 1, total: 2, rate: 0.5 });
+  });
+
+  it('優先度は、単発の手がかり（トレードオフ以外）とトレードオフへの答えに分けて数える。全体 ＝ 単発 ＋ トレードオフ', () => {
+    const before = slots({ floorMin: { value: 2, priority: 'want' } });
+    const setPriority = (priority: 'must' | 'nice') => ({ ops: [{ op: 'setPriority' as const, key: 'floorMin' as const, priority }] });
+    const summary = summarize([
+      // 単発（priority）: 一致
+      run({ id: 'ex-001', category: 'priority', priorityCue: true, slots: before, expected: setPriority('must') }, result(setPriority('must'))),
+      // 単発（change）: 手がかりがあれば category が priority でなくても単発に数える。不一致
+      run({ id: 'ex-002', category: 'change', priorityCue: true, slots: before, expected: setPriority('must') }, result(setPriority('nice'))),
+      // トレードオフ: 一致・不一致
+      run({ id: 'ex-003', category: 'tradeoff', priorityCue: true, slots: before, expected: setPriority('nice') }, result(setPriority('nice'))),
+      run({ id: 'ex-004', category: 'tradeoff', priorityCue: true, slots: before, expected: setPriority('must') }, result(setPriority('nice'))),
+      run({ id: 'ex-005', category: 'tradeoff', priorityCue: true, slots: before, expected: setPriority('must') }, result(setPriority('nice'))),
+      // 手がかりなし（priorityCue: false）はどちらにも入らない
+      run({ id: 'ex-006', category: 'basic', priorityCue: false, slots: before, expected: setPriority('must') }, result(setPriority('nice'))),
+    ]);
+    expect(summary.priorityCue).toEqual({ correct: 1, total: 2, rate: 0.5 });
+    expect(summary.priorityTradeoff).toEqual({ correct: 1, total: 3, rate: 1 / 3 });
+    expect(summary.priority).toEqual({ correct: 2, total: 5, rate: 0.4 });
+  });
+
+  it('トレードオフのケースが無ければ、その分は母数 0（rate は null）', () => {
+    const summary = summarize([run({ expected: { intent: 'showMore' } }, result({ intent: 'showMore' }))]);
+    expect(summary.priorityCue).toEqual({ correct: 0, total: 0, rate: null });
+    expect(summary.priorityTradeoff).toEqual({ correct: 0, total: 0, rate: null });
+  });
+
+  it('summarizePriorityByKind は、ケースごとの採点（結果ファイルの score）だけから同じ分割を再計算できる', () => {
+    const before = slots({ floorMin: { value: 2, priority: 'want' } });
+    const must = { ops: [{ op: 'setPriority' as const, key: 'floorMin' as const, priority: 'must' as const }] };
+    const runs = [
+      run({ category: 'priority', priorityCue: true, slots: before, expected: must }, result(must)),
+      run({ category: 'tradeoff', priorityCue: true, slots: before, expected: must }, result({ ops: [] })),
+    ];
+    // JSON を経由しても変わらない（結果ファイルに保存した score から再計算するため）
+    const scores = JSON.parse(JSON.stringify(runs.map((r) => r.score))) as ExtractionCaseScore[];
+    const split = summarizePriorityByKind(scores);
+    const summary = summarize(runs);
+    expect(split.cue).toEqual(summary.priorityCue);
+    expect(split.tradeoff).toEqual(summary.priorityTradeoff);
+    expect(split.cue).toEqual({ correct: 1, total: 1, rate: 1 });
+    expect(split.tradeoff).toEqual({ correct: 0, total: 1, rate: 0 });
   });
 
   it('禁止トピック: 正解が禁止トピックの発話での再現率と、禁止トピックでない発話への誤検出の件数', () => {

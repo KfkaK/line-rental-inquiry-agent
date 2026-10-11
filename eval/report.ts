@@ -1,10 +1,23 @@
 /**
- * 評価ランナー（scripts/eval.ts）の純関数: 引数の解析・ケースの絞り込み・採点のとりまとめ・レポートの整形。
+ * 評価ランナー（scripts/eval.ts）の純関数: 引数の解析・ケースの絞り込み・条件抽出の採点のとりまとめとレポート。
  * I/O（ファイル・API・標準出力）は持たない。使い方と指標の定義は eval/README.md。
+ * 攻撃的質問のレポートは eval/reportAttack.ts、シナリオは eval/reportScenario.ts、共通の整形は eval/reportCommon.ts。
  */
-import { toJst } from '@/domain/businessHours';
 import type { ExtractionResult, Property } from '@/domain/types';
-import { MODEL_FAST } from '@/lib/llm/models';
+import {
+  EVAL_SETS,
+  buildResultConfig,
+  formatFraction,
+  formatJst,
+  formatMs,
+  formatRate,
+  formatSettingsLines,
+  formatUsd,
+  oneLine,
+  resultFileName,
+  type EvalSet,
+  type RunMeta,
+} from './reportCommon';
 import {
   scoreExtractionCase,
   summarizeExtraction,
@@ -15,35 +28,54 @@ import {
   type SlotUnit,
   type SlotUnitResult,
 } from './score';
-import { EXTRACTION_CATEGORIES, type ExtractionCase, type ExtractionCategory, type Ratio } from './types';
+import { EVAL_CONFIGS, EXTRACTION_CATEGORIES, type EvalConfig, type ExtractionCase, type ExtractionCategory, type Ratio } from './types';
+
+// 共通の整形は reportCommon.ts にある。テストと呼び出し側が './report' から読めるよう、よく使うものを再エクスポートする
+export { EVAL_SETS, formatFraction, formatJst, formatRate, resultFileName, type EvalSet };
 
 // ---------- 引数 ----------
 
-export const EVAL_SETS = ['extraction'] as const;
-export type EvalSet = (typeof EVAL_SETS)[number];
+/** --set に書けるもの。all は3つの評価セットを順に回す */
+export const EVAL_SET_ARGS = [...EVAL_SETS, 'all'] as const;
+export type EvalSetArg = (typeof EVAL_SET_ARGS)[number];
+
+/** 引数の set が回す評価セット（all は3つを extraction → attack → scenario の順に） */
+export const setsOf = (set: EvalSetArg): readonly EvalSet[] => (set === 'all' ? EVAL_SETS : [set]);
 
 export const DEFAULT_OUT_DIR = 'eval/results';
+/** --max-cost の既定（USD）。累計の費用がこの額に達したら、次のケースを始めずに打ち切る */
+export const DEFAULT_MAX_COST_USD = 2;
+export const DEFAULT_CONFIG: EvalConfig = 'two-model';
 
 export interface EvalArgs {
-  set: EvalSet;
-  model: string;
+  set: EvalSetArg;
+  config: EvalConfig;
+  /** false で抽出の前段の辞書を通さない（--no-dictionary。two-model と haiku-answer だけ） */
+  dictionary: boolean;
+  /** 条件抽出のモデルの上書き（--model。--set=extraction のときだけ）。null なら構成の既定 */
+  model: string | null;
   /** 先頭から N 件だけ回す。null なら全件 */
   limit: number | null;
   /** 指定した id のケースだけ（その順）。null なら全件 */
   ids: string[] | null;
   /** 実 API を使わず、偽物のクライアントで流れだけ確かめる */
   fake: boolean;
+  /** 累計の費用（USD）の上限。--set=all では3つの評価セットを通した累計 */
+  maxCostUsd: number;
   /** 結果の JSON を書くディレクトリ */
   out: string;
 }
 
 export const EVAL_USAGE = [
   '使い方: npm run eval -- [オプション]',
-  '  --set=extraction     評価セット（いまは extraction だけ。省略時も extraction）',
-  `  --model=<id>         抽出に使うモデル（省略時 ${MODEL_FAST}）`,
-  '  --limit=N            先頭から N 件だけ回す',
-  '  --ids=ex-001,ex-002  指定した id のケースだけ回す（この順）',
-  '  --fake               実 API を使わず、偽物のクライアントで流れだけ確かめる',
+  `  --set=<名前>         評価セット: ${EVAL_SET_ARGS.join(' / ')}（省略時 extraction。all は3つを順に）`,
+  `  --config=<名前>      比べる構成: ${EVAL_CONFIGS.join(' / ')}（省略時 ${DEFAULT_CONFIG}）`,
+  '  --no-dictionary      抽出の前段の辞書を通さない（two-model と haiku-answer だけ）',
+  '  --model=<id>         条件抽出のモデルの上書き（--set=extraction のときだけ。省略時は構成の既定）',
+  '  --limit=N            先頭から N 件（シナリオは N 本）だけ回す。--set=all では評価セットごとに',
+  '  --ids=ex-001,ex-002  指定した id のケースだけ回す（この順。--set=all では使えない）',
+  '  --fake               実 API を使わず、偽物で流れだけ確かめる',
+  `  --max-cost=<USD>     累計の費用がこの額に達したら、次のケースを始めずに打ち切る（省略時 ${DEFAULT_MAX_COST_USD}）`,
   `  --out=<dir>          結果の JSON を書くディレクトリ（省略時 ${DEFAULT_OUT_DIR}。--fake のときは一時ディレクトリ）`,
 ].join('\n');
 
@@ -53,21 +85,52 @@ function valueOf(name: string, value: string | null): string {
   return value;
 }
 
+/** 値を取らないオプション（`--fake=true` は誤り） */
+function assertFlag(name: string, value: string | null): void {
+  if (value !== null) throw new Error(`${name} は値を取りません`);
+}
+
 export function parseEvalArgs(argv: readonly string[]): EvalArgs {
-  const args: EvalArgs = { set: 'extraction', model: MODEL_FAST, limit: null, ids: null, fake: false, out: DEFAULT_OUT_DIR };
+  const args: EvalArgs = {
+    set: 'extraction',
+    config: DEFAULT_CONFIG,
+    dictionary: true,
+    model: null,
+    limit: null,
+    ids: null,
+    fake: false,
+    maxCostUsd: DEFAULT_MAX_COST_USD,
+    out: DEFAULT_OUT_DIR,
+  };
   for (const arg of argv) {
     const eq = arg.indexOf('=');
     const name = eq === -1 ? arg : arg.slice(0, eq);
     const value = eq === -1 ? null : arg.slice(eq + 1);
     switch (name) {
       case '--fake':
-        if (value !== null) throw new Error('--fake は値を取りません');
+        assertFlag(name, value);
         args.fake = true;
+        break;
+      case '--no-dictionary':
+        assertFlag(name, value);
+        args.dictionary = false;
         break;
       case '--set': {
         const set = valueOf(name, value);
-        if (!(EVAL_SETS as readonly string[]).includes(set)) throw new Error(`--set は ${EVAL_SETS.join(' / ')} のどれか: ${set}`);
-        args.set = set as EvalSet;
+        if (!(EVAL_SET_ARGS as readonly string[]).includes(set)) throw new Error(`--set は ${EVAL_SET_ARGS.join(' / ')} のどれか: ${set}`);
+        args.set = set as EvalSetArg;
+        break;
+      }
+      case '--config': {
+        const config = valueOf(name, value);
+        if (!(EVAL_CONFIGS as readonly string[]).includes(config)) throw new Error(`--config は ${EVAL_CONFIGS.join(' / ')} のどれか: ${config}`);
+        args.config = config as EvalConfig;
+        break;
+      }
+      case '--max-cost': {
+        const text = valueOf(name, value);
+        if (!/^\d+(\.\d+)?$/.test(text) || Number(text) <= 0) throw new Error(`--max-cost は 0 より大きい数（USD）: ${text}`);
+        args.maxCostUsd = Number(text);
         break;
       }
       case '--model':
@@ -96,6 +159,12 @@ export function parseEvalArgs(argv: readonly string[]): EvalArgs {
         throw new Error(`未知のオプション: ${arg}`);
     }
   }
+  // 組み合わせの誤りは、API を呼ぶ前に止める
+  if (!args.dictionary && args.config === 'one-model') {
+    throw new Error('--no-dictionary は two-model と haiku-answer だけ（one-model は常に辞書のヒントを通す構成で、切り替えられないため）');
+  }
+  if (args.model !== null && args.set !== 'extraction') throw new Error('--model は --set=extraction のときだけ指定できます');
+  if (args.ids !== null && args.set === 'all') throw new Error('--ids は --set=all では使えません（評価セットごとに id が違うため。--set を1つに決めてください）');
   return args;
 }
 
@@ -203,45 +272,16 @@ export function formatProgress(index: number, total: number, run: CaseRun): stri
 
 // ---------- 結果ファイル ----------
 
-/** JST の 'YYYY-MM-DD HH:mm' */
-export function formatJst(at: Date): string {
-  const { date, time } = toJst(at);
-  return `${date} ${time}`;
-}
-
-/** 結果の JSON のファイル名。例: `extraction-claude-haiku-4-5-20261015-2130.json`（日時は JST） */
-export function resultFileName(set: string, model: string, at: Date, options: { fake?: boolean } = {}): string {
-  const { date, time } = toJst(at);
-  const stamp = `${date.replaceAll('-', '')}-${time.replace(':', '')}`;
-  const safeModel = model.replace(/[^A-Za-z0-9._-]/g, '_');
-  return `${set}-${safeModel}${options.fake ? '-fake' : ''}-${stamp}.json`;
-}
-
-export interface ExtractionReportInput {
-  set: EvalSet;
-  model: string;
-  fake: boolean;
-  limit: number | null;
-  ids: readonly string[] | null;
-  at: Date;
+export type ExtractionReportInput = RunMeta & {
   runs: readonly CaseRun[];
   summary: ExtractionSummary;
   measures: MeasureSummary;
-}
+};
 
 /** 結果の JSON（ケースごとの正解・実際・採点・計測・ログ・エラーを含む） */
 export function buildResultFile(input: ExtractionReportInput): unknown {
   return {
-    config: {
-      set: input.set,
-      model: input.model,
-      fake: input.fake,
-      limit: input.limit,
-      ids: input.ids,
-      caseCount: input.runs.length,
-      at: input.at.toISOString(),
-      atJst: formatJst(input.at),
-    },
+    config: buildResultConfig(input, input.runs.length),
     summary: input.summary,
     measures: input.measures,
     errors: countErrors(input.runs),
@@ -262,21 +302,6 @@ export function buildResultFile(input: ExtractionReportInput): unknown {
 
 // ---------- Markdown のレポート ----------
 
-const DASH = '—';
-
-/** 割合は % で小数1桁。母数 0 は — */
-export function formatRate(r: Ratio): string {
-  return r.rate === null ? DASH : `${(r.rate * 100).toFixed(1)}%`;
-}
-
-/** 正解数/母数。母数 0 は — */
-export function formatFraction(r: Ratio): string {
-  return r.total === 0 ? DASH : `${r.correct}/${r.total}`;
-}
-
-const formatMs = (ms: number | null): string => (ms === null ? DASH : `${ms} ms`);
-const formatUsd = (usd: number | null): string => (usd === null ? DASH : `$${usd.toFixed(4)}`);
-
 const CATEGORY_LABELS: Record<ExtractionCategory, string> = {
   basic: '単純な条件',
   variant: '表記ゆれ',
@@ -287,6 +312,7 @@ const CATEGORY_LABELS: Record<ExtractionCategory, string> = {
   viewing: '内見',
   forbidden: '禁止トピック',
   other: 'その他',
+  tradeoff: 'トレードオフへの答え',
 };
 
 /** 単位の値を読める形に（エリアは駅・区、間取りは並べる） */
@@ -335,8 +361,6 @@ export function describeMismatch(run: CaseRun): string[] {
   return lines;
 }
 
-const oneLine = (text: string): string => text.replace(/\s*\n\s*/g, ' ');
-
 export function formatExtractionReport(input: ExtractionReportInput): string {
   const { runs, summary, measures } = input;
   const out: string[] = [];
@@ -344,11 +368,11 @@ export function formatExtractionReport(input: ExtractionReportInput): string {
   out.push('# 条件抽出の評価レポート', '');
 
   out.push('## 設定', '');
-  out.push(`- 評価セット: ${input.set}（条件抽出・単発発話）`);
-  out.push(`- モデル: ${input.model}`);
-  out.push(`- 件数: ${runs.length}`);
-  out.push(`- 日時: ${formatJst(input.at)} JST`);
-  if (input.fake) out.push('- `--fake`: 実 API は呼んでいません（流れの確認用。数字に意味はありません）');
+  out.push(...formatSettingsLines(input, runs.length));
+  // haiku-answer は回答生成だけが two-model と違う。条件抽出は同じ呼び出しなので、数字は two-model の再測定にあたる
+  if (input.config === 'haiku-answer') {
+    out.push('- 注: haiku-answer の条件抽出は two-model と同じです（違うのは回答生成だけ）。この数字は two-model の再測定にあたります');
+  }
   out.push('');
 
   out.push('## 指標', '');
@@ -358,6 +382,8 @@ export function formatExtractionReport(input: ExtractionReportInput): string {
     ['意図', summary.intent],
     ['条件抽出の正確さ（スロット単位）', summary.slotValue],
     ['優先度判定の正確さ', summary.priority],
+    ['　うち単発の手がかり（トレードオフ以外）', summary.priorityCue],
+    ['　うちトレードオフへの答え（tradeoff）', summary.priorityTradeoff],
     ['禁止トピックの再現率', summary.forbiddenRecall],
     ['表示番号', summary.targets],
     ['内見の日時', summary.viewingTimes],

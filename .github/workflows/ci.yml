@@ -17,3 +17,7 @@ jobs:
       - run: npm ci
       # typecheck（next typegen 込み）・lint・テスト・コントラスト。実キーは不要
       - run: npm run check
+      # 評価ランナーが壊れていないことを毎回確かめる（--fake: 実 API を呼ばず、3つの評価セットを偽物で最後まで回す。実キーは不要）
+      - run: npm run --silent eval -- --set=all --fake > /dev/null
+      # 比較表が、リポジトリの結果ファイル（eval/results）を読めること
+      - run: npm run --silent eval:compare > /dev/null

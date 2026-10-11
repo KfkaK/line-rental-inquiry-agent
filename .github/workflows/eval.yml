@@ -1,0 +1,96 @@
+name: Eval
+
+# 実 API（Anthropic）で評価セットを回す。有料なので手動実行（workflow_dispatch）だけ。
+# 使い方・指標の定義・費用の目安は eval/README.md。
+# 事前に、リポジトリのシークレット ANTHROPIC_API_KEY を設定しておく（Settings → Secrets and variables → Actions）。
+# 結果の JSON は eval/results/ に出て、アーティファクト「eval-results」として残る。基準にする回だけをリポジトリにコミットする。
+
+on:
+  workflow_dispatch:
+    inputs:
+      set:
+        description: 評価セット（all は条件抽出・攻撃的質問・シナリオを順に）
+        type: choice
+        options: [all, extraction, attack, scenario]
+        default: all
+      config:
+        description: 比べる構成（two-model = 本番 / haiku-answer = 回答生成も Haiku / one-model = Sonnet 1回で抽出と回答）
+        type: choice
+        options: [two-model, haiku-answer, one-model]
+        default: two-model
+      limit:
+        description: 先頭から N 件（シナリオは N 本）だけ回す。空なら全件（--set=all では評価セットごとに）
+        type: string
+        required: false
+        default: ''
+      max_cost:
+        description: 累計の費用の上限（USD）。この額に達したら次のケースを始めずに打ち切る
+        type: string
+        required: true
+        default: '2'
+      no_dictionary:
+        description: 抽出の前段の辞書を通さない（two-model と haiku-answer だけ）
+        type: boolean
+        default: false
+
+# 同時に2つ回さない（費用の上限が通算にならなくなるため）。待っている実行は取り消さない
+concurrency:
+  group: eval
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    # 全 3 セットで 30 分前後（Sonnet の 1 モデル構成はもう少し）。ハングしたときに課金が続かないよう上限を付ける
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: ANTHROPIC_API_KEY が設定されているか確かめる
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error title=ANTHROPIC_API_KEY が未設定です::リポジトリのシークレット ANTHROPIC_API_KEY を設定してから、もう一度実行してください（Settings → Secrets and variables → Actions → New repository secret）。"
+            exit 1
+          fi
+
+      - run: npm ci
+
+      - name: 評価を回す
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # 入力はシェルに直接埋め込まず、環境変数で渡す（引数の誤りはランナーが検出して、使い方つきで失敗する）
+          EVAL_SET: ${{ inputs.set }}
+          EVAL_CONFIG: ${{ inputs.config }}
+          EVAL_LIMIT: ${{ inputs.limit }}
+          EVAL_MAX_COST: ${{ inputs.max_cost }}
+          EVAL_NO_DICTIONARY: ${{ inputs.no_dictionary }}
+        run: |
+          args=("--set=${EVAL_SET}" "--config=${EVAL_CONFIG}" "--max-cost=${EVAL_MAX_COST}")
+          if [ -n "${EVAL_LIMIT}" ]; then args+=("--limit=${EVAL_LIMIT}"); fi
+          if [ "${EVAL_NO_DICTIONARY}" = "true" ]; then args+=("--no-dictionary"); fi
+          echo "npm run eval -- ${args[*]}"
+          # 進捗は標準エラー（ログに出る）、レポート（Markdown）は標準出力
+          npm run --silent eval -- "${args[@]}" > "$RUNNER_TEMP/eval-report.md"
+
+      # レポートをジョブの要約に載せる（評価が失敗しても、出ている分は載せる）
+      - name: レポートを要約に載せる
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/eval-report.md" ]; then cat "$RUNNER_TEMP/eval-report.md" >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: 結果の JSON を残す
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: eval/results/
+          if-no-files-found: warn

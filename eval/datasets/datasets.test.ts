@@ -12,9 +12,16 @@ import { slotUnits } from '../score';
 import { EVAL_NOW, EXTRACTION_CATEGORIES } from '../types';
 import { EXTRACTION_CASES } from './extraction';
 
-/** 種（Week 2）の最低件数。Week 4 で単発 80 件・優先度の手がかり 40 件に増やす（DESIGN.md 7章） */
-const MIN_CASES = 30;
-const MIN_PRIORITY_CUE = 10;
+/**
+ * DESIGN.md 7章: 単発発話 80 件（ex-001〜ex-080。うち優先度の手がかりを含むもの 40 件以上）と、
+ * トレードオフの質問への答え 20 件（ex-081〜ex-100。全件が優先度の手がかりを含む）
+ */
+const SINGLE_CASES = 80;
+const MIN_PRIORITY_CUE_IN_SINGLE = 40;
+const TRADEOFF_CASES = 20;
+
+const singleCases = EXTRACTION_CASES.filter((c) => c.category !== 'tradeoff');
+const tradeoffCases = EXTRACTION_CASES.filter((c) => c.category === 'tradeoff');
 
 const properties = loadDemoProperties();
 const publicIds = new Set(properties.filter((p) => p.status === 'public').map((p) => p.id));
@@ -43,18 +50,46 @@ function noOpPriorityChanges(before: Slots, ops: readonly SlotOp[]): string[] {
 }
 
 describe('抽出の評価セット（eval/datasets/extraction.ts）', () => {
-  it(`種として ${MIN_CASES} 件以上あり、全カテゴリがあり、優先度の手がかりが ${MIN_PRIORITY_CUE} 件以上ある`, () => {
-    expect(EXTRACTION_CASES.length).toBeGreaterThanOrEqual(MIN_CASES);
+  it(`単発発話が ${SINGLE_CASES} 件、トレードオフの答えが ${TRADEOFF_CASES} 件あり、全カテゴリがある`, () => {
+    expect(singleCases.length).toBe(SINGLE_CASES);
+    expect(tradeoffCases.length).toBe(TRADEOFF_CASES);
     for (const category of EXTRACTION_CATEGORIES) {
       expect(EXTRACTION_CASES.some((c) => c.category === category), category).toBe(true);
     }
-    expect(EXTRACTION_CASES.filter((c) => c.priorityCue).length).toBeGreaterThanOrEqual(MIN_PRIORITY_CUE);
   });
 
-  it('ID は ex-NNN で重複しない', () => {
+  it(`単発発話のうち優先度の手がかりを含むものが ${MIN_PRIORITY_CUE_IN_SINGLE} 件以上ある`, () => {
+    expect(singleCases.filter((c) => c.priorityCue).length).toBeGreaterThanOrEqual(MIN_PRIORITY_CUE_IN_SINGLE);
+  });
+
+  it('ID は ex-NNN で重複せず、ex-001 から連番。単発が ex-001〜ex-080、トレードオフが ex-081〜ex-100', () => {
     const ids = EXTRACTION_CASES.map((c) => c.id);
     expect(ids.filter((id) => !/^ex-\d{3}$/.test(id))).toEqual([]);
     expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toEqual(EXTRACTION_CASES.map((_, i) => `ex-${String(i + 1).padStart(3, '0')}`));
+    expect(singleCases.map((c) => c.id)).toEqual(ids.slice(0, SINGLE_CASES));
+    expect(tradeoffCases.map((c) => c.id)).toEqual(ids.slice(SINGLE_CASES));
+  });
+
+  it('トレードオフの答えは、全件が優先度の手がかりを含み、must と want の混在したスロットを前提に、直前の質問を note に持つ', () => {
+    for (const c of tradeoffCases) {
+      expect(c.priorityCue, c.id).toBe(true);
+      expect(c.slots, `${c.id}: slots`).toBeDefined();
+      const priorities = new Set([...slotUnits(c.slots ?? { tags: [] }).values()].map((u) => u.priority));
+      expect(priorities.has('must') && priorities.has('want'), `${c.id}: must と want が混在`).toBe(true);
+      expect(c.note?.includes('直前の質問'), `${c.id}: note に直前の質問`).toBe(true);
+      expect(c.expected.intent, c.id).toBe('conditions');
+      expect(c.expected.ops.length, `${c.id}: ops`).toBeGreaterThan(0);
+    }
+  });
+
+  it('トレードオフの答えの正解は、発話の前の優先度を実際に変える（変わらない正解は採点の母数にならない）', () => {
+    for (const c of tradeoffCases) {
+      const before = slotUnits(c.slots ?? { tags: [] });
+      const after = slotUnits(applySlotOps(c.slots ?? { tags: [] }, c.expected.ops));
+      const changed = [...after].some(([key, unit]) => before.get(key)?.priority !== unit.priority);
+      expect(changed, c.id).toBe(true);
+    }
   });
 
   it('発話が空でない・現在時刻が日時として読める', () => {
