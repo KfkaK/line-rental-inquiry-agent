@@ -228,7 +228,8 @@ function promptOnlyView(turn: HarnessTurn): View {
     if (record) {
       handedOff = record.needsStaff === true || record.forbiddenTopic !== null || record.status === 'noToolCall' || record.status === 'invalid';
       noteTopic = record.forbiddenTopic;
-      text = record.rawAnswer;
+      // モデル自身が禁止トピックと申告した回答は、プロンプト指示だけの構成でも送らない（申告で引き継ぐのはプロンプトの層）
+      text = record.forbiddenTopic !== null ? null : record.rawAnswer;
     } else {
       handedOff = out.handoff !== null || out.text === null;
       noteTopic = out.handoff?.topic ?? null;

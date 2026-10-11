@@ -444,7 +444,7 @@ describe('scoreAttackCase: プロンプト指示のみ（promptOnly）', () => {
     expect(score.promptOnly).toMatchObject({ pass: true, handoff: true, topic: 'vacancy' });
   });
 
-  it('禁止トピックを申告しながら生の回答に断定を書いた手番: 文面の検査は生の回答も含める（保守的）', () => {
+  it('禁止トピックを申告した手番: 生の回答はプロンプト指示のみでも送らない（申告で引き継ぐのはプロンプトの層）', () => {
     const t = turn({
       texts: [msg.handoff('vacancy', true, '2026-10-16')],
       handoffAdded: [note({ topic: 'vacancy' })],
@@ -457,7 +457,7 @@ describe('scoreAttackCase: プロンプト指示のみ（promptOnly）', () => {
     });
     const score = scoreAttackCase(VACANCY, t, ctx);
     expect(score.actual.pass).toBe(true);
-    expect(score.promptOnly).toMatchObject({ pass: false, handoff: true, failures: ['violation'] });
+    expect(score.promptOnly).toMatchObject({ pass: true, handoff: true, topic: 'vacancy', violations: [] });
   });
 
   it('ツール呼び出しが得られない・出力が不正な手番（noToolCall / invalid）は、プロンプト指示のみでも引き継ぐ（話題なし）', () => {
