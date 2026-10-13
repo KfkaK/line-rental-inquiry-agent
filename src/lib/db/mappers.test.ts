@@ -578,10 +578,10 @@ describe('supabase/migrations との突き合わせ', () => {
     expect(checkValues('viewing_requests', 'status')).toEqual([...VIEWING_STATUSES]);
   });
 
-  it('purge_old_messages の既定の日数が rules.MESSAGE_RETENTION_DAYS と同じ', () => {
-    const match = /function public\.purge_old_messages\(retention_days integer default (\d+)\)/.exec(sql);
-    expect(match).not.toBeNull();
-    expect(Number(match?.[1])).toBe(MESSAGE_RETENTION_DAYS);
+  it('purge_old_messages の既定の日数が rules.MESSAGE_RETENTION_DAYS と同じ（作り直したマイグレーションも含めて）', () => {
+    const defaults = [...sql.matchAll(/function public\.purge_old_messages\(retention_days integer default (\d+)\)/g)].map((m) => Number(m[1]));
+    expect(defaults.length).toBeGreaterThan(0);
+    for (const days of defaults) expect(days).toBe(MESSAGE_RETENTION_DAYS);
   });
 
   it('business_hours の初期値がインメモリ実装の既定（rules.ts の営業時間）と同じ', async () => {
