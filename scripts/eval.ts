@@ -13,6 +13,7 @@
  * 1件ずつ順に呼ぶ（応答時間をそろえるため）。API エラーのケースは fallbackExtraction() として採点して続ける。
  * 終了コードは、評価の結果にかかわらず 0（引数の誤りなど実行自体の失敗だけ 1）。進捗は標準エラー、レポートと結果ファイルのパスは標準出力。
  */
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -54,12 +55,28 @@ function assertPriced(args: EvalArgs): void {
   }
 }
 
-async function main(): Promise<void> {
+/**
+ * .env.local を読む。worktree（.claude/worktrees/*）には .env.local が無いので、元のチェックアウトのものを読む。
+ * コマンドで .env.local を名指しすると Claude Code のフックが止めるので、パスはここで解決する（意思決定ログ20）
+ */
+function loadEnvLocal(): void {
+  const candidates = ['.env.local'];
   try {
-    process.loadEnvFile('.env.local');
+    const commonDir = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    candidates.push(path.join(path.dirname(commonDir), '.env.local'));
   } catch {
-    // .env.local が無ければ、環境変数がすでに設定されている前提で続ける
+    // git が使えなければ作業ディレクトリだけを見る
   }
+  const found = candidates.find((file) => fs.existsSync(file));
+  // どこにも無ければ、環境変数がすでに設定されている前提で続ける
+  if (found) process.loadEnvFile(found);
+}
+
+async function main(): Promise<void> {
+  loadEnvLocal();
   let args: EvalArgs;
   try {
     args = parseEvalArgs(process.argv.slice(2));

@@ -1,4 +1,14 @@
 {
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.local)",
+      "Read(./.env.*.local)",
+      "Read(./.env.development)",
+      "Read(./.env.production)",
+      "Read(./.env.test)"
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {
@@ -7,6 +17,18 @@
             "type": "command",
             "command": "node scripts/cloud-setup.js",
             "timeout": 600
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/guard-bash.js\"",
+            "timeout": 30
           }
         ]
       }
