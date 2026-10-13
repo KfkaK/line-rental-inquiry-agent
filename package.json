@@ -17,7 +17,8 @@
     "eval": "tsx scripts/eval.ts",
     "eval:compare": "tsx scripts/eval-compare.ts",
     "check:contrast": "node scripts/check-contrast.js",
-    "check": "npm run typecheck && npm run lint && npm test && npm run check:contrast"
+    "check:docs": "node scripts/check-docs.js",
+    "check": "npm run typecheck && npm run lint && npm test && npm run check:contrast && npm run check:docs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
