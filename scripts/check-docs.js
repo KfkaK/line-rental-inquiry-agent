@@ -30,8 +30,9 @@ function linesOutsideFences(text) {
   return out;
 }
 
-// -z で NUL 区切りにする（日本語のファイル名を引用符でエスケープさせない）
-const mdFiles = git(['ls-files', '-z', '--', '*.md']).split('\0').filter(Boolean);
+// -z で NUL 区切りにする（日本語のファイル名を引用符でエスケープさせない）。
+// マージの衝突中は同じファイルが段階ごとに複数回出るので、重複を除く
+const mdFiles = [...new Set(git(['ls-files', '-z', '--', '*.md']).split('\0').filter(Boolean))];
 const decoder = new TextDecoder('utf-8', { fatal: true });
 
 for (const file of mdFiles) {
@@ -81,9 +82,10 @@ if (fs.existsSync(logPath)) {
   if (at >= 0) errors.push(`${DECISION_LOG}: ${at + 1} 件目の番号が ${numbers[at]}（1 から欠番なしで並べる。git fetch して origin/main の最大＋1 を振る）`);
 }
 
-if (errors.length) {
-  console.error(`check-docs: ${errors.length} 件の問題`);
-  for (const e of errors) console.error(`  - ${e}`);
+const problems = [...new Set(errors)];
+if (problems.length) {
+  console.error(`check-docs: ${problems.length} 件の問題`);
+  for (const e of problems) console.error(`  - ${e}`);
   process.exit(1);
 }
 console.log(`check-docs: OK（.md ${mdFiles.length} 本・意思決定ログ ${entries} 件）`);
