@@ -100,7 +100,7 @@ function attack({ row, ...rest }: Overrides<AttackRow> = {}): CompareResult {
     partial: false,
     ...rest,
     set: 'attack',
-    row: { actual: ratio(40, 40), promptOnly: ratio(36, 40), rescued: 4, ...row },
+    row: { actual: ratio(40, 40), promptOnly: ratio(36, 40), rescued: 4, paraphrase: null, ...row },
   };
 }
 
@@ -275,6 +275,19 @@ describe('結果ファイルの書き手（--fake の実行）と読み手がつ
     expect(result.row.actual).toEqual(run!.summary.detection.actual);
     expect(result.row.promptOnly).toEqual(run!.summary.detection.promptOnly);
     expect(result.row.rescued).toBe(run!.summary.rescuedByVerification.length);
+    // --limit=3 の先頭 3 件は notInRecord だけなので、言い換えの区分は無い
+    expect(result.row.paraphrase).toBeNull();
+  });
+
+  it('attack: 区分「数値・設備の言い換え」（paraphrase）だけの検出率を読む', async () => {
+    const idsArgs = parseEvalArgs(['--fake', '--ids=at-041,at-042']);
+    const idsCtx: SetContext = { ...ctx, args: idsArgs, budget: createBudget(idsArgs.maxCostUsd), factories: fakeFactories(idsArgs) };
+    const run = await runAttackSet(idsCtx);
+    const result = OK(parseResultFile(asReal(buildAttackResultFile(run!)), 'x.json'));
+    if (result.set !== 'attack') throw new Error('attack のはず');
+    const category = run!.summary.byCategory.paraphrase;
+    expect(category?.actual.total).toBe(2);
+    expect(result.row.paraphrase).toEqual({ actual: category?.actual, promptOnly: category?.promptOnly });
   });
 
   it('scenario: 到達率（全体・時間外）・ベースライン・応答時間・費用', async () => {
@@ -399,14 +412,25 @@ describe('formatCompareTables', () => {
     expect(text).toContain('| 2026-10-16 | claude-haiku-4-5 |');
   });
 
-  it('禁止回答の検出率: 構成ごとに 後段検証あり／プロンプト指示のみ／救った件数', () => {
+  it('禁止回答の検出率: 構成ごとに 後段検証あり／プロンプト指示のみ／救った件数／数値・設備の言い換えの区分', () => {
     const lines = formatCompareTables([
       attack(),
-      attack({ file: 'one.json', config: 'one-model', extractModel: 'claude-sonnet-5-5', answerModel: 'claude-sonnet-5-5', row: { actual: ratio(39, 40), promptOnly: ratio(33, 40), rescued: 6 } }),
+      attack({
+        file: 'one.json',
+        config: 'one-model',
+        extractModel: 'claude-sonnet-5-5',
+        answerModel: 'claude-sonnet-5-5',
+        caseCount: 52,
+        row: { actual: ratio(51, 52), promptOnly: ratio(45, 52), rescued: 6, paraphrase: { actual: ratio(11, 12), promptOnly: ratio(5, 12) } },
+      }),
     ]).split('\n');
-    expect(lines).toContain('| 構成 | 件数 | 後段検証あり（本番） | プロンプト指示のみ | 根拠検証が救った件数 | 実行日 | モデル（抽出 / 回答生成） |');
-    expect(lines).toContain('| two-model | 40 | 100.0%（40/40） | 90.0%（36/40） | 4 | 2026-10-15 | claude-haiku-4-5 / claude-sonnet-5-5 |');
-    expect(lines).toContain('| one-model | 40 | 97.5%（39/40） | 82.5%（33/40） | 6 | 2026-10-15 | claude-sonnet-5-5 |');
+    expect(lines).toContain(
+      '| 構成 | 件数 | 後段検証あり（本番） | プロンプト指示のみ | 根拠検証が救った件数 | 数値・設備の言い換え（本番 / 指示のみ） | 実行日 | モデル（抽出 / 回答生成） |',
+    );
+    // 言い換えの区分が無い結果（区分を足す前の 40 件の回）は —
+    expect(lines).toContain('| two-model | 40 | 100.0%（40/40） | 90.0%（36/40） | 4 | — | 2026-10-15 | claude-haiku-4-5 / claude-sonnet-5-5 |');
+    expect(lines).toContain('| one-model | 52 | 98.1%（51/52） | 86.5%（45/52） | 6 | 91.7%（11/12） / 41.7%（5/12） | 2026-10-15 | claude-sonnet-5-5 |');
+    expect(lines.some((l) => l.startsWith('- 数値・設備の言い換え = 区分 `paraphrase`'))).toBe(true);
   });
 
   it('シナリオ: 到達率（全体・時間外）・ベースライン・自由文／回答生成の手番の p50/p95・1会話の費用（円）', () => {

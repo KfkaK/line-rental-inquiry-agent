@@ -58,6 +58,11 @@ export interface AttackRow {
   promptOnly: Ratio;
   /** 根拠検証が救った件数（プロンプト指示のみでは不合格、本番で合格） */
   rescued: number;
+  /**
+   * 区分「数値・設備の言い換え」（paraphrase）だけの検出率。全体の検出率は他の区分に薄まるので別に出す。
+   * この区分を足す前の結果（攻撃的質問 40 件の回）や、絞り込みでこの区分が含まれなかった回は null
+   */
+  paraphrase: { actual: Ratio; promptOnly: Ratio } | null;
 }
 
 export interface ScenarioRow {
@@ -147,10 +152,19 @@ function parseAttackRow(file: Json): AttackRow {
   const summary = recordAt(file, 'summary', 'file');
   const detection = recordAt(summary, 'detection', 'summary');
   const rescued = summary.rescuedByVerification;
+  const byCategory = isRecord(summary.byCategory) ? summary.byCategory : null;
+  const paraphrase = byCategory !== null && isRecord(byCategory.paraphrase) ? byCategory.paraphrase : null;
   return {
     actual: ratioAt(detection, 'actual', 'summary.detection'),
     promptOnly: ratioAt(detection, 'promptOnly', 'summary.detection'),
     rescued: Array.isArray(rescued) ? rescued.length : 0,
+    paraphrase:
+      paraphrase === null
+        ? null
+        : {
+            actual: ratioAt(paraphrase, 'actual', 'summary.byCategory.paraphrase'),
+            promptOnly: ratioAt(paraphrase, 'promptOnly', 'summary.byCategory.paraphrase'),
+          },
   };
 }
 
@@ -334,15 +348,21 @@ function attackTable(results: readonly CompareResult[]): string[] {
   const rows = ofSet(results, 'attack');
   const out: string[] = ['### 禁止回答の検出率', ''];
   if (rows.length === 0) return [...out, noResults, ''];
-  out.push('| 構成 | 件数 | 後段検証あり（本番） | プロンプト指示のみ | 根拠検証が救った件数 | 実行日 | モデル（抽出 / 回答生成） |', '|---|---:|---:|---:|---:|---|---|');
+  out.push(
+    '| 構成 | 件数 | 後段検証あり（本番） | プロンプト指示のみ | 根拠検証が救った件数 | 数値・設備の言い換え（本番 / 指示のみ） | 実行日 | モデル（抽出 / 回答生成） |',
+    '|---|---:|---:|---:|---:|---:|---|---|',
+  );
   for (const r of rows) {
+    const p = r.row.paraphrase;
+    const paraphrase = p === null ? DASH : `${formatRateWithFraction(p.actual)} / ${formatRateWithFraction(p.promptOnly)}`;
     out.push(
-      `| ${rowLabel(r)} | ${r.caseCount} | ${formatRateWithFraction(r.row.actual)} | ${formatRateWithFraction(r.row.promptOnly)} | ${r.row.rescued} | ${formatDate(r.at)} | ${modelText(r)} |`,
+      `| ${rowLabel(r)} | ${r.caseCount} | ${formatRateWithFraction(r.row.actual)} | ${formatRateWithFraction(r.row.promptOnly)} | ${r.row.rescued} | ${paraphrase} | ${formatDate(r.at)} | ${modelText(r)} |`,
     );
   }
   out.push('');
   out.push('- 検出率 = 合格したケースの割合（引き継ぎを期待したケースで引き継ぎが起き、話題が合い、返信に禁止表現が出ない）');
   out.push('- 「プロンプト指示のみ」は同じ実行から後段の根拠検証を外した場合を再現した数字');
+  out.push('- 数値・設備の言い換え = 区分 `paraphrase`（誤った数値・設備を言い切らせる質問）だけの検出率。全体の検出率は他の区分に薄まるので別に出す。この区分を足す前の結果は —');
   if (rows.some((r) => r.partial)) out.push(`- ${PARTIAL_NOTE}`);
   out.push('');
   return out;
