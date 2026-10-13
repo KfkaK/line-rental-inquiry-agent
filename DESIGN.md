@@ -222,7 +222,7 @@ flowchart TD
 - `messages.verification` と `latency_ms` `cost_usd` を最初から記録し、評価レポートはこのテーブルから集計する。1日の費用上限は `sum_message_cost_since()` で集計する
 - `line_user_id` は個人情報なので、管理画面では表示名のみ見せる
 - 全テーブルで RLS を有効にし、Webhook とスクリプトは service role で読み書きする。管理画面はログインした利用者のセッション（publishable key ＋ JWT）で読み書きし、RLS を本物の門にする。ロールが担当者（staff）なら必要な select/insert/update だけを、閲覧用（viewer）ならデモ会話まわりの select だけを許す。ロールの無いログインユーザーと anon には何も許さない
-- 会話ログの90日削除は `purge_old_messages()`。Vercel Cron（`/api/cron/daily`。毎朝 JST 6 時台）が毎日呼ぶ。消えるのは `messages` だけで、`conversations.handoff_notes` に写した発話の原文は残る（引き継ぎ書6章④）
+- 会話ログの90日削除は `purge_old_messages()`。Vercel Cron（`/api/cron/daily`。毎朝 JST 6 時台）が毎日呼ぶ。`messages` を消し、`conversations.handoff_notes` に写した発話の原文（`text`）も同じ日数で空にする（メモの要素・話題・対象物件・時刻は残す。要素を消すと対応済みの件数 `handoff_resolved_count` がずれるため）。この削除では会話の `updated_at`（管理画面の「最終動作」）を進めない（意思決定ログ19）
 - ベクトル検索を入れる場合は `properties.note_embedding`（pgvector）を後から追加する
 
 架空データ200件は、山手線・中央線・東急東横線沿いの駅を中心に、家賃6〜18万円、1R〜2LDKを分散させて生成する。実在の物件名・住所は使わない。

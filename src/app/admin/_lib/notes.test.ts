@@ -26,6 +26,11 @@ describe('describeHandoffNote', () => {
     expect(describeHandoffNote(note({ text: 'あいうえおかきくけこ', topic: null }), 5)).toBe('『あいうえお…』');
     expect(describeHandoffNote(note({ text: 'あいうえお', topic: null }), 5)).toBe('『あいうえお』');
   });
+
+  it('保存期間を過ぎて原文を消したメモ（text が空）は、空の『』でなく削除済みと出す', () => {
+    expect(describeHandoffNote(note({ text: '' }))).toBe('空室状況: （保存期間を過ぎたため削除）');
+    expect(describeHandoffNote(note({ text: '', topic: null }), 5)).toBe('（保存期間を過ぎたため削除）');
+  });
 });
 
 describe('groupConditions', () => {

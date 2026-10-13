@@ -62,6 +62,7 @@ describe('プライバシーポリシーの内容', () => {
   it('メールに表示名・LINE ユーザー ID を載せないことと、会話ログの保存期間は rules.ts と同じ', () => {
     expect(text).toContain('LINE の表示名と LINE ユーザー ID は載せません');
     expect(text).toContain(`会話ログ（メッセージ）は ${MESSAGE_RETENTION_DAYS} 日で削除します`);
+    expect(text).toContain(`担当者へ回した質問の文面も、同じく ${MESSAGE_RETENTION_DAYS} 日で削除します`);
   });
 
   it('閲覧用アカウントは架空のデモ会話だけ、管理画面に LINE ユーザー ID を出さないことを書く', () => {

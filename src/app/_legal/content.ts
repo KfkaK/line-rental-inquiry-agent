@@ -88,8 +88,8 @@ export const PRIVACY: LegalDocument = {
     {
       heading: '保存期間',
       items: [
-        `会話ログ（メッセージ）は ${MESSAGE_RETENTION_DAYS} 日で削除します。削除は毎日自動で行います`,
-        'LINE の表示名・LINE ユーザー ID・希望条件・内見の候補日時・担当者へ回した質問の文面は、会話ログの削除とは別に保存されます',
+        `会話ログ（メッセージ）は ${MESSAGE_RETENTION_DAYS} 日で削除します。担当者へ回した質問の文面も、同じく ${MESSAGE_RETENTION_DAYS} 日で削除します。削除は毎日自動で行います`,
+        'LINE の表示名・LINE ユーザー ID・希望条件・内見の候補日時は、会話ログの削除とは別に保存されます',
       ],
     },
     {
