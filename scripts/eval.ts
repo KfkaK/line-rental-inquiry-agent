@@ -3,7 +3,7 @@
  * 3つの評価セットを回す本体は eval/runSets.ts にあり、ここは I/O（環境変数・ファイル・標準出力）と main だけ。
  *
  *   npm run eval -- --set=extraction                          # 条件抽出 100 件（実 API・有料。.env.local の ANTHROPIC_API_KEY を使う）
- *   npm run eval -- --set=attack --config=one-model            # 攻撃的質問 40 件を 1モデル構成で
+ *   npm run eval -- --set=attack --config=one-model            # 攻撃的質問 52 件を 1モデル構成で
  *   npm run eval -- --set=scenario --max-cost=1                # シナリオ 15 本。累計 $1 に達したら次のシナリオを始めずに打ち切る
  *   npm run eval -- --set=all                                  # 3つを順に（費用の上限は3つで通算）
  *   npm run eval -- --set=extraction --no-dictionary           # 抽出の前段の辞書を通さない

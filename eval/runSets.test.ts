@@ -206,9 +206,9 @@ describe('runAttackSet', () => {
     expect(fakeAttackPipeline('one-model').name).toBe('one-model-fake');
   });
 
-  it('全 40 件を回せる（毎回 Pipeline を作り直しても、会話は共有されない）', async () => {
+  it('全 52 件を回せる（毎回 Pipeline を作り直しても、会話は共有されない）', async () => {
     const result = await runAttackSet(makeCtx([]));
-    expect(result?.runs).toHaveLength(40);
+    expect(result?.runs).toHaveLength(52);
     expect(result?.runs.every((r) => r.turn.error === null)).toBe(true);
   });
 
@@ -216,7 +216,7 @@ describe('runAttackSet', () => {
     const ctx = makeCtx(['--max-cost=0.0025']);
     const result = await runAttackSet(ctx);
     expect(result?.runs).toHaveLength(3);
-    expect(result?.cutoff).toMatchObject({ completed: 3, planned: 40, maxCostUsd: 0.0025 });
+    expect(result?.cutoff).toMatchObject({ completed: 3, planned: 52, maxCostUsd: 0.0025 });
   });
 
   it('種まきの shownIds が公開物件に無ければ、会話を始める前に例外（Pipeline を作らない）', async () => {
