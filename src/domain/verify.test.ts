@@ -700,12 +700,12 @@ describe('境界（誤検出しない）', () => {
   describe('readNumbers', () => {
     it('8万5千円 を 85000 の yen 1つとして読む（8万 と 5千円 に分けない）', () => {
       expect(readNumbers('8万5千円')).toEqual([
-        { unit: 'yen', value: 85000, raw: '8万5千円', comparative: false },
+        { unit: 'yen', value: 85000, raw: '8万5千円', comparative: false, index: 0 },
       ]);
     });
 
     it('9万以内 は comparative が true', () => {
-      expect(readNumbers('9万以内')).toEqual([{ unit: 'yen', value: 90000, raw: '9万', comparative: true }]);
+      expect(readNumbers('9万以内')).toEqual([{ unit: 'yen', value: 90000, raw: '9万', comparative: true, index: 0 }]);
     });
 
     it('万・円・㎡・分・階・築年・年月日を単位つきで読む', () => {
@@ -981,6 +981,39 @@ describe('対象が複数のときは、物件ごとに照合する（意思決�
   it('主語を省いた答えも、その区切りの物件で照合する', () => {
     expect(both('2番目は付いています。1番目は付いていません。', '1番目と2番目はオートロックありますか？').ok).toBe(true);
     expect(both('1番目は付いています。', '1番目と2番目はオートロックありますか？').ok).toBe(false);
+  });
+});
+
+describe('取りこぼしの残り（敷金礼金の円換算・漢数字のメートル・入居可能日の言い切り。意思決定ログ28）', () => {
+  it('敷金・礼金を円で書いたら、家賃と同額でも落とす', () => {
+    expectIssue({ name: '礼金', text: '礼金は1か月分で81,000円です。', issue: { kind: 'number', token: '81,000円' } });
+    expectIssue({ name: '敷金（括弧）', text: '敷金は1か月分（8.1万円）です。', issue: { kind: 'number', token: '8.1万円' } });
+  });
+
+  it('同じ文でも、節が変わった家賃・管理費の金額は通す', () => {
+    expectOk({ name: '節が別', text: '敷金・礼金はどちらも1か月で、家賃は81,000円です。' });
+    expectOk({ name: '家賃が後', text: '敷金1か月分の家賃は81,000円です。' });
+    expectOk({ name: '金額が先', text: '家賃は81,000円、敷金は1か月です。' });
+  });
+
+  it('漢数字のメートル・畳は照合できない数値として落とす', () => {
+    expectIssue({ name: 'メートル', text: '駅まで五百六十メートルです。', issue: { kind: 'number', token: '五百六十メートル' } });
+    expectIssue({ name: '畳', text: '広さは約十畳です。', issue: { kind: 'number' } });
+  });
+
+  it('「即入居可」と言えるのは入居可能日が空の物件だけ', () => {
+    // MOMIJI は 2026-11-01 から
+    expectIssue({ name: '即入居', text: '即入居可です。', issue: { kind: 'feature', feature: '即入居可', claimed: 'present' } });
+    expectIssue({ name: 'すぐ', text: 'すぐに入居できます。', issue: { kind: 'feature', feature: '即入居可', claimed: 'present' } });
+    expectOk({ name: '日付どおり', text: '入居可能日は11月1日からで、即入居はできません。' });
+    // TSUBAKI は即入居可
+    expectOk({ name: '即入居可の物件', text: '即入居可です。', targets: [at(TSUBAKI)] });
+    expectIssue({
+      name: '即入居可の物件に「できない」',
+      text: '即入居はできません。',
+      targets: [at(TSUBAKI)],
+      issue: { kind: 'feature', feature: '即入居可', claimed: 'absent' },
+    });
   });
 });
 

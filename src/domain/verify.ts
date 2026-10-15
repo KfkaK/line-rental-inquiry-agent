@@ -102,14 +102,6 @@ function normalize(text: string): string {
 /** 区切り（数値や語が前後とつながらないよう、消した所に置く） */
 const SEP = '｜';
 
-function stripLiterals(text: string, literals: readonly string[]): string {
-  let out = text;
-  for (const lit of [...literals].filter((l) => l.length > 0).sort((a, b) => b.length - a.length)) {
-    out = out.split(lit).join(SEP);
-  }
-  return out;
-}
-
 // ---------- 主語（どの物件のことか。意思決定ログ27） ----------
 
 /** 物件名・住所を消した所に置く物件ごとの印（私用領域の文字。数字・駅名・語の照合に掛からない） */
@@ -269,6 +261,8 @@ interface NumToken {
   raw: string;
   /** 直後が「以内」「以上」などの比較の語か */
   comparative: boolean;
+  /** 読んだ文の中の位置 */
+  index: number;
 }
 
 /** 比較の語（質問の数値を条件として繰り返すときの形） */
@@ -318,15 +312,22 @@ const PERIOD_RE = /(?:\d{1,2}|[一二三四五六七八九十]+)年(?:間|分)/g
  * 漢数字の数値（回答は算用数字で書かせるので、出てきたら照合できない数値として扱う）。
  * 「十分（じゅうぶん）」と、算用数字に続く「8万5千円」の「千円」は除く
  */
-const KANJI_NUMBER_RE = /(?<![0-9])[一二三四五六七八九十百千]+(?:万|円|分|階|年|か月|㎡)/g;
+const KANJI_NUMBER_RE = /(?<![0-9])[一二三四五六七八九十百千]+(?:万|円|分|階|年|か月|㎡|メートル|m|キロ|畳|坪)/g;
+
+/** 語を同じ長さの区切りで隠す（数値の位置 `index` が元の文の位置のままになるように） */
+function maskLiterals(text: string, literals: readonly string[]): string {
+  let out = text;
+  for (const lit of [...literals].sort((a, b) => b.length - a.length)) out = out.split(lit).join(SEP.repeat(lit.length));
+  return out;
+}
 
 export function readNumbers(text: string): NumToken[] {
-  let rest = stripLiterals(text, NUMERIC_PHRASES)
+  let rest = maskLiterals(text, NUMERIC_PHRASES)
     .replace(LAYOUT_RE, (m) => SEP.repeat(m.length))
     .replace(PERIOD_RE, (m) => SEP.repeat(m.length));
   const tokens: NumToken[] = [];
   for (const m of rest.matchAll(KANJI_NUMBER_RE)) {
-    if (m[0] !== '十分') tokens.push({ unit: 'unknown', value: Number.NaN, raw: m[0], comparative: false });
+    if (m[0] !== '十分') tokens.push({ unit: 'unknown', value: Number.NaN, raw: m[0], comparative: false, index: m.index });
   }
   for (const { re, read } of NUMBER_PATTERNS) {
     rest = rest.replace(re, (...args) => {
@@ -334,11 +335,23 @@ export function readNumbers(text: string): NumToken[] {
       const offset = args[args.length - 2] as number;
       const whole = args[args.length - 1] as string;
       const after = whole.slice(offset + m[0].length);
-      tokens.push({ ...read(m), raw: m[0], comparative: COMPARATIVE_RE.test(after) });
+      tokens.push({ ...read(m), raw: m[0], comparative: COMPARATIVE_RE.test(after), index: offset });
       return SEP.repeat(m[0].length);
     });
   }
   return tokens;
+}
+
+/**
+ * 敷金・礼金を円で書いたか（「礼金は1か月分で68,000円です」）。レコードは月数だけで、回答生成のプロンプトは円への換算を禁じている。
+ * 家賃と同額なので値の照合では通ってしまう。金額の前の同じ節（直前の「、」「。」まで）に敷金・礼金があり、
+ * そのあいだに家賃・管理費などの語が無ければ換算とみなす（意思決定ログ28）
+ */
+function depositInYen(text: string, index: number): boolean {
+  const before = text.slice(0, index);
+  const clause = before.slice(Math.max(before.lastIndexOf('、'), before.lastIndexOf('。'), before.lastIndexOf('\n')) + 1);
+  const at = Math.max(clause.lastIndexOf('敷金'), clause.lastIndexOf('礼金'), clause.lastIndexOf('敷礼'));
+  return at !== -1 && !/家賃|賃料|管理費|共益費|月額/.test(clause.slice(at));
 }
 
 /** 比べる言い回し（物件どうしの差の数値は、この語のある区切りでだけ通す。主語が分からない区切りでは常に通す） */
@@ -360,6 +373,10 @@ function checkNumbers(segments: readonly Segment[], question: string, targets: r
           : [recordValues(segment.indices.map((i) => targets[i]), year)];
     const comparing = segment.indices === null || COMPARISON_CUE_RE.test(segment.text);
     for (const token of readNumbers(segment.text)) {
+      if (token.unit === 'yen' && depositInYen(segment.text, token.index)) {
+        issues.push({ kind: 'number', token: token.raw });
+        continue;
+      }
       if (matches(common, token)) continue;
       if (pools.every((pool) => matches(pool, token) || (comparing && matches(diffs, token)))) continue;
       // 質問の条件の復唱（「9万円以内です」「2階以上です」）
@@ -482,6 +499,13 @@ const TERMS: readonly Term[] = [
     has: tag('2人入居可'),
   },
   { kind: 'feature', feature: '楽器相談可', re: /楽器|ピアノ|ギター|ドラム|バイオリン|ヴァイオリン|サックス|音楽/g, has: tag('楽器相談可') },
+  // 入居可能日の言い切り。「即入居可」と言えるのは入居可能日が空（即入居可）の物件だけ（意思決定ログ28）
+  {
+    kind: 'feature',
+    feature: '即入居可',
+    re: /即入居|即日入居|すぐ(?:に)?入居|すぐ(?:に)?住め|いつでも入居/g,
+    has: (p) => p.availableFrom === null,
+  },
   // 「敷礼ゼロ」「ゼロゼロ」は敷金・礼金の両方がゼロのこと（無いと書いたら両方 0 の物件が要る）
   { kind: 'feature', feature: '敷金・礼金', re: /敷礼/g, has: (p) => p.depositMonths > 0 || p.keyMoneyMonths > 0 },
   { kind: 'feature', feature: '敷金・礼金', re: /ゼロゼロ/g, has: (p) => p.depositMonths > 0 || p.keyMoneyMonths > 0, invert: true },

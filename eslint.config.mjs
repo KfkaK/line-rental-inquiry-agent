@@ -43,6 +43,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // 並行セッションが作る作業ツリー（中身は別ブランチのリポジトリ全体。ここから lint すると二重に読む）
+    ".claude/worktrees/**",
   ]),
 ]);
 
