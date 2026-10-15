@@ -41,6 +41,13 @@ export const FLOOR_PARTIAL_TOLERANCE = 0;
  */
 export const DEFAULT_WALK_PREFERENCE_MIN = 15;
 
+/**
+ * 「駅から遠くてもいい」「徒歩は気にしない」の写し先（意思決定ログ26）。抽出はこの値の walkMax を nice で set する。
+ * 徒歩の条件が明示されるので目安（DEFAULT_WALK_PREFERENCE_MIN）は使わず、どの物件も満点になって月額の安い順に並ぶ。
+ * 値は徒歩の値域の上限（CLAMP.walkMin.max）と同じで、条件の文言は「駅からの距離は問わない」になる（labels.ts）
+ */
+export const WALK_NO_PREFERENCE_MIN = 60;
+
 /** 予算と比べる金額に管理費を含める（「月々いくら」の感覚に合わせる） */
 export const BUDGET_INCLUDES_MANAGEMENT_FEE = true;
 
