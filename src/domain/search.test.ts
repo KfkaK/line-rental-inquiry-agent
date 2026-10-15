@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { baseSlots, makeProperty } from './fixtures';
+import { conditionLabel } from './labels';
+import { CLAMP, WALK_NO_PREFERENCE_MIN } from './rules';
 import { relevantAccess, scoreProperty, searchProperties } from './search';
-import { asAllMust } from './slots';
+import { asAllMust, listConditions } from './slots';
 
 describe('must の絞り込み', () => {
   it('エリアは駅か区のどちらかが合えば一致', () => {
@@ -142,6 +144,25 @@ describe('徒歩の目安（徒歩の条件が無いとき。意思決定ログ2
     const near = makeProperty({ id: 'P0002', rent: 80000, access: [{ station: '代々木', walkMin: 6 }] });
     const far = makeProperty({ id: 'P0001', rent: 60000, access: [{ station: '代々木', walkMin: 20 }] });
     expect(searchProperties([far, near], slots).items.map((i) => i.property.id)).toEqual(['P0002', 'P0001']);
+  });
+});
+
+describe('「駅から遠くてもいい」（walkMax = WALK_NO_PREFERENCE_MIN を nice。意思決定ログ26）', () => {
+  it('値は徒歩の値域の上限と同じで、条件の文言は「駅からの距離は問わない」', () => {
+    expect(WALK_NO_PREFERENCE_MIN).toBe(CLAMP.walkMin.max);
+    const slots = baseSlots({ walkMax: { value: WALK_NO_PREFERENCE_MIN, priority: 'nice' } });
+    expect(listConditions(slots).map((c) => c.label)).toContain('駅からの距離は問わない');
+    expect(conditionLabel({ kind: 'slot', key: 'walkMax' }, slots)).toBe('駅からの距離は問わない');
+  });
+
+  it('目安は使わず、遠くても安い物件が先に来る', () => {
+    const slots = baseSlots({
+      area: { value: { stations: ['中目黒'], wards: [] }, priority: 'must' },
+      walkMax: { value: WALK_NO_PREFERENCE_MIN, priority: 'nice' },
+    });
+    const far = makeProperty({ id: 'P0161', rent: 63000, access: [{ station: '中目黒', walkMin: 22 }] });
+    const near = makeProperty({ id: 'P0096', rent: 70000, access: [{ station: '中目黒', walkMin: 10 }] });
+    expect(searchProperties([near, far], slots).items.map((i) => i.property.id)).toEqual(['P0161', 'P0096']);
   });
 });
 

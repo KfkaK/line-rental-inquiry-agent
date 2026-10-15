@@ -14,14 +14,18 @@ import { EXTRACTION_CASES } from './extraction';
 
 /**
  * DESIGN.md 7章: 単発発話 80 件（ex-001〜ex-080。うち優先度の手がかりを含むもの 40 件以上）と、
- * トレードオフの質問への答え 20 件（ex-081〜ex-100。全件が優先度の手がかりを含む）
+ * トレードオフの質問への答え 20 件（ex-081〜ex-100。全件が優先度の手がかりを含む）。
+ * ex-101 以降は後から足した単発発話（README の数字を測った 100 件の形は変えない。意思決定ログ26）
  */
 const SINGLE_CASES = 80;
 const MIN_PRIORITY_CUE_IN_SINGLE = 40;
 const TRADEOFF_CASES = 20;
+const BASE_CASES = SINGLE_CASES + TRADEOFF_CASES;
 
-const singleCases = EXTRACTION_CASES.filter((c) => c.category !== 'tradeoff');
-const tradeoffCases = EXTRACTION_CASES.filter((c) => c.category === 'tradeoff');
+const baseCases = EXTRACTION_CASES.slice(0, BASE_CASES);
+const addedCases = EXTRACTION_CASES.slice(BASE_CASES);
+const singleCases = baseCases.filter((c) => c.category !== 'tradeoff');
+const tradeoffCases = baseCases.filter((c) => c.category === 'tradeoff');
 
 const properties = loadDemoProperties();
 const publicIds = new Set(properties.filter((p) => p.status === 'public').map((p) => p.id));
@@ -62,13 +66,14 @@ describe('抽出の評価セット（eval/datasets/extraction.ts）', () => {
     expect(singleCases.filter((c) => c.priorityCue).length).toBeGreaterThanOrEqual(MIN_PRIORITY_CUE_IN_SINGLE);
   });
 
-  it('ID は ex-NNN で重複せず、ex-001 から連番。単発が ex-001〜ex-080、トレードオフが ex-081〜ex-100', () => {
+  it('ID は ex-NNN で重複せず、ex-001 から連番。単発が ex-001〜ex-080、トレードオフが ex-081〜ex-100、それ以降は追加の単発', () => {
     const ids = EXTRACTION_CASES.map((c) => c.id);
     expect(ids.filter((id) => !/^ex-\d{3}$/.test(id))).toEqual([]);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toEqual(EXTRACTION_CASES.map((_, i) => `ex-${String(i + 1).padStart(3, '0')}`));
     expect(singleCases.map((c) => c.id)).toEqual(ids.slice(0, SINGLE_CASES));
-    expect(tradeoffCases.map((c) => c.id)).toEqual(ids.slice(SINGLE_CASES));
+    expect(tradeoffCases.map((c) => c.id)).toEqual(ids.slice(SINGLE_CASES, BASE_CASES));
+    expect(addedCases.filter((c) => c.category === 'tradeoff').map((c) => c.id)).toEqual([]);
   });
 
   it('トレードオフの答えは、全件が優先度の手がかりを含み、must と want の混在したスロットを前提に、直前の質問を note に持つ', () => {

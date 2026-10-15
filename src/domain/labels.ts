@@ -1,6 +1,7 @@
 /**
  * 条件と金額の表示文言（純関数）。カード・回答文・管理画面で同じ言い方にそろえる。
  */
+import { WALK_NO_PREFERENCE_MIN } from './rules';
 import type { ConditionRef, ScalarSlotKey, ScalarSlotValues, Slots } from './types';
 
 /** 90000 → '9万'、93000 → '9.3万'、93500 → '9.35万' */
@@ -37,7 +38,7 @@ export function slotLabel<K extends ScalarSlotKey>(key: K, value: ScalarSlotValu
     case 'layouts':
       return (value as ScalarSlotValues['layouts']).join('・');
     case 'walkMax':
-      return `徒歩${value as number}分以内`;
+      return (value as number) >= WALK_NO_PREFERENCE_MIN ? '駅からの距離は問わない' : `徒歩${value as number}分以内`;
     case 'floorMin':
       return `${value as number}階以上`;
     case 'moveIn':

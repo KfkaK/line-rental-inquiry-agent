@@ -3,8 +3,10 @@
  * - ex-001〜ex-032: 種（Week 2。基準の数字がこの 32 件で取ってあるので変えない）
  * - ex-033〜ex-080: 単発発話の拡充（合わせて 80 件。優先度の手がかりを含むものが 40 件以上）
  * - ex-081〜ex-100: トレードオフの質問への答え 20 件（category 'tradeoff'）
+ * - ex-101〜ex-102: 「駅から遠くてもいい」を徒歩の上限の値（nice）に写す（2026-10-15。意思決定ログ26。README の数字はこの2件を足す前の 100 件で測ったもの）
  * 正解の付け方は eval/README.md。正解は本番の正規化（canonicalizeOps）と駅マスタで eval/datasets/datasets.test.ts が検査する。
  */
+import { WALK_NO_PREFERENCE_MIN } from '@/domain/rules';
 import type { Priority, Slot, Slots, Tag } from '@/domain/types';
 import type { ExtractionCase } from '../types';
 
@@ -1562,5 +1564,31 @@ export const EXTRACTION_CASES: ExtractionCase[] = [
       ops: [{ op: 'setTagPriority', tag: '静か', priority: 'must' }],
     },
     note: '直前の質問:「候補が36件あります。この中で外せない条件はどれですか？」。「静かなことが一番譲れません」は希望（タグ「静か」の must）で、騒音の質問ではないので forbiddenTopic は null',
+  },
+
+  // ---------- 「駅から遠くてもいい」（2026-10-15 に追加。意思決定ログ26） ----------
+  {
+    id: 'ex-101',
+    category: 'priority',
+    priorityCue: true,
+    utterance: '駅から遠くても大丈夫です',
+    slots: base(['中目黒'], 90000),
+    expected: {
+      intent: 'conditions',
+      ops: [{ op: 'set', key: 'walkMax', value: WALK_NO_PREFERENCE_MIN, priority: 'nice' }],
+    },
+    note: '徒歩の条件が無いと、検索は「徒歩15分以内」を目安に並べる。遠くてもいいなら walkMax を上限の値で nice にして目安を外す（unset では目安が残る）',
+  },
+  {
+    id: 'ex-102',
+    category: 'priority',
+    priorityCue: true,
+    utterance: '徒歩は何分でも気にしないです',
+    slots: { ...base(['池袋'], 100000), walkMax: { value: 10, priority: 'want' } },
+    expected: {
+      intent: 'conditions',
+      ops: [{ op: 'set', key: 'walkMax', value: WALK_NO_PREFERENCE_MIN, priority: 'nice' }],
+    },
+    note: '既に徒歩10分の want があっても、値を上限に変えて nice にする（setPriority だけだと「徒歩10分以内」が残る）',
   },
 ];
