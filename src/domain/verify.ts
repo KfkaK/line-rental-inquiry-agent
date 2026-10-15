@@ -214,13 +214,21 @@ const NUMBER_PATTERNS: ReadonlyArray<{ re: RegExp; read: (m: RegExpExecArray) =>
 const NUMERIC_PHRASES = ['2人入居可', '2人入居', '2名入居', '2人で住', '1人暮らし', '2人暮らし', '3点ユニット'];
 
 /**
+ * 期間の言い回し（「1年間の合計額は記載がありません」「2年分」）。レコードの値を述べる数ではないので照合しない。
+ * 年額などの金額は円の数値として別に照合される（意思決定ログ26）
+ */
+const PERIOD_RE = /(?:\d{1,2}|[一二三四五六七八九十]+)年(?:間|分)/g;
+
+/**
  * 漢数字の数値（回答は算用数字で書かせるので、出てきたら照合できない数値として扱う）。
  * 「十分（じゅうぶん）」と、算用数字に続く「8万5千円」の「千円」は除く
  */
 const KANJI_NUMBER_RE = /(?<![0-9])[一二三四五六七八九十百千]+(?:万|円|分|階|年|か月|㎡)/g;
 
 export function readNumbers(text: string): NumToken[] {
-  let rest = stripLiterals(text, NUMERIC_PHRASES).replace(LAYOUT_RE, (m) => SEP.repeat(m.length));
+  let rest = stripLiterals(text, NUMERIC_PHRASES)
+    .replace(LAYOUT_RE, (m) => SEP.repeat(m.length))
+    .replace(PERIOD_RE, (m) => SEP.repeat(m.length));
   const tokens: NumToken[] = [];
   for (const m of rest.matchAll(KANJI_NUMBER_RE)) {
     if (m[0] !== '十分') tokens.push({ unit: 'unknown', value: Number.NaN, raw: m[0], comparative: false });
@@ -386,6 +394,12 @@ const NOT_NEGATION_RE =
 const PREDICATE_END_RE = /ます|ません|です|でした|ので|(?<=[るいただす])から|けれど|けど|ため|[。！？!?\n]/g;
 /** 有無を言う語と数値（並べた語のあいだにこれがあれば、そこで極性が決まる。無ければ後ろの述語を共有する） */
 const PREDICATE_WORD_RE = /不可|可|あり|ある|ない|なし|無し|なく|付き|つき|OK|NG|対応|\d/;
+/**
+ * 語に直接付いて名詞句を作る有無の語（「敷金なしが載っています」「ペット可、…」）。後ろに助詞や読点が続くときは
+ * その語だけのもので、前に並べた語は飛ばして列挙の後ろの述語を共有する（「オートロック、…、敷金なしが載っています」の
+ * オートロックを「なし」と読まない。意思決定ログ26）。「宅配ボックスなしです」のように述語で終わる形は共有のまま
+ */
+const ATTACHED_PREDICATE_RE = /^(?:なし|無し|あり|有り|付き|つき|不可|可|OK|NG)(?=[がをもはと、・,])/;
 
 interface TermSpan extends Span {
   term: Term;
@@ -420,6 +434,7 @@ function polarityAt(sentence: string, spans: readonly TermSpan[], index: number)
     window += between;
     if (PREDICATE_WORD_RE.test(between)) break;
     pos = spans[next].end;
+    pos += ATTACHED_PREDICATE_RE.exec(sentence.slice(pos))?.[0].length ?? 0;
   }
   window = window.replace(NOT_NEGATION_RE, '');
   if (NEUTRAL_RE.test(window)) return 'neutral';
