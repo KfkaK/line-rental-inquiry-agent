@@ -66,16 +66,15 @@ export function verifyAnswer(input: VerifyInput): VerifyResult {
   const question = normalize(input.question);
   const properties = input.targets.map((t) => t.property);
   // 物件名・住所は表記どおりなら通す（「第2〜」「1-2-3」の数字や、名前に入った駅名を照合しない）。
-  // 回答文と同じ正規化をかけ、回答生成が見せる形（山括弧を落とした名前）も含める
-  const text = stripLiterals(
-    raw,
-    properties.flatMap((p) => [p.name, p.name.replace(/[<>]/g, ''), p.address, p.address.replace(/[<>]/g, '')].map(normalize)),
-  );
+  // 回答文と同じ正規化をかけ、回答生成が見せる形（山括弧を落とした名前）も含める。消した所には物件ごとの印を置き、主語の手がかりにする
+  const text = markSubjects(raw, properties);
+  const segments = segmentBySubject(text, input.targets);
 
   checkLayouts(text, question, properties, issues);
   checkPlaces(text, question, properties, issues);
-  checkNumbers(text, question, input.targets, jstYear(input.now), issues);
-  checkTerms(text, properties, issues);
+  checkNumbers(segments, question, input.targets, jstYear(input.now), issues);
+  checkTerms(segments, properties, issues);
+  checkElliptical(segments, question, properties, issues);
   return { ok: issues.length === 0, issues };
 }
 
@@ -109,6 +108,102 @@ function stripLiterals(text: string, literals: readonly string[]): string {
     out = out.split(lit).join(SEP);
   }
   return out;
+}
+
+// ---------- 主語（どの物件のことか。意思決定ログ27） ----------
+
+/** 物件名・住所を消した所に置く物件ごとの印（私用領域の文字。数字・駅名・語の照合に掛からない） */
+const SUBJECT_MARK_BASE = 0xe000;
+const SUBJECT_MARK_RE = /[-]/;
+
+/** 物件名・住所を、区切りで挟んだ物件ごとの印に置き換える（長い表記から） */
+function markSubjects(text: string, properties: readonly Property[]): string {
+  const literals = properties.flatMap((p, i) =>
+    [p.name, p.name.replace(/[<>]/g, ''), p.address, p.address.replace(/[<>]/g, '')]
+      .map(normalize)
+      .filter((l) => l.length > 0)
+      .map((lit) => ({ lit, mark: `${SEP}${String.fromCharCode(SUBJECT_MARK_BASE + i)}${SEP}` })),
+  );
+  let out = text;
+  for (const { lit, mark } of literals.sort((a, b) => b.lit.length - a.lit.length)) out = out.split(lit).join(mark);
+  return out;
+}
+
+/**
+ * 区切りの主語。`indices` は対象物件（input.targets）の添字で、null は「どれのことか分からない」（いずれかに当てはまればよい）。
+ * `every` は「どちらも」「1番目と2番目は」のように全部に当てはまることを言っているとき
+ */
+interface Segment {
+  text: string;
+  indices: number[] | null;
+  every: boolean;
+}
+
+/** 全部の物件を指す言い回し */
+const ALL_TARGETS_RE = /どちらも|どっちも|両方とも|両方|いずれも|いずれの物件も|どれも|どの物件も|\d件とも/g;
+/** 印の直後がこれなら、その物件は比べる相手で主語ではない（「2番目より安い」「1番目と比べて」） */
+const COMPARISON_OBJECT_RE = /^(?:より|と違って|とは違って|と違い|とは違い|と比べ|に比べ|と異なり|に対して|と同じ|と同様)/;
+/** 並べた主語のあいだ（「1番目と2番目は」「1番目・2番目とも」）。物件名と番号が並んだ形（「ハイツすみれ（4番目）」）も含む */
+const JOINED_SUBJECTS_RE = /^(?:と|・|や|、|及び|および)?$/;
+
+interface SubjectMark {
+  start: number;
+  end: number;
+  indices: number[];
+  every: boolean;
+}
+
+function findSubjectMarks(sentence: string, targets: readonly VerifyTarget[]): SubjectMark[] {
+  const all = targets.map((_, i) => i);
+  const marks: SubjectMark[] = [];
+  for (let i = 0; i < sentence.length; i++) {
+    if (SUBJECT_MARK_RE.test(sentence[i])) {
+      marks.push({ start: i, end: i + 1, indices: [sentence.charCodeAt(i) - SUBJECT_MARK_BASE], every: false });
+    }
+  }
+  for (const m of sentence.matchAll(/(\d+)番目/g)) {
+    const index = targets.findIndex((t) => t.position === Number(m[1]));
+    if (index !== -1) marks.push({ start: m.index, end: m.index + m[0].length, indices: [index], every: false });
+  }
+  for (const m of sentence.matchAll(ALL_TARGETS_RE)) {
+    marks.push({ start: m.index, end: m.index + m[0].length, indices: all, every: true });
+  }
+  return marks
+    .filter((m) => !COMPARISON_OBJECT_RE.test(sentence.slice(m.end).replaceAll(SEP, '')))
+    .sort((a, b) => a.start - b.start);
+}
+
+/**
+ * 回答文を主語ごとの区切りに分ける。文に主語の印が無ければ直前の主語を引き継ぎ（「1番目は徒歩10分です。オートロックはありません。」）、
+ * 1つの文に別の物件の主語が続けば、そこで分ける（「1番目はオートロック付き、2番目は宅配ボックス付きです」）
+ */
+function segmentBySubject(text: string, targets: readonly VerifyTarget[]): Segment[] {
+  const segments: Segment[] = [];
+  let context: Omit<Segment, 'text'> = { indices: targets.length === 1 ? [0] : null, every: false };
+  for (const sentence of text.split(/(?<=[。！？!?\n])/)) {
+    const marks = findSubjectMarks(sentence, targets);
+    if (marks.length === 0) {
+      segments.push({ text: sentence, ...context });
+      continue;
+    }
+    if (marks[0].start > 0) segments.push({ text: sentence.slice(0, marks[0].start), ...context });
+    let start = marks[0].start;
+    let current: Omit<Segment, 'text'> = { indices: marks[0].indices, every: marks[0].every };
+    for (let k = 1; k < marks.length; k++) {
+      const gap = sentence.slice(marks[k - 1].end, marks[k].start).replace(/[｜（）()\s]/g, '');
+      if (JOINED_SUBJECTS_RE.test(gap)) {
+        const indices = [...new Set([...current.indices!, ...marks[k].indices])].sort((a, b) => a - b);
+        current = { indices, every: current.every || marks[k].every || indices.length > current.indices!.length };
+        continue;
+      }
+      segments.push({ text: sentence.slice(start, marks[k].start), ...current });
+      start = marks[k].start;
+      current = { indices: marks[k].indices, every: marks[k].every };
+    }
+    segments.push({ text: sentence.slice(start), ...current });
+    context = current;
+  }
+  return segments;
 }
 
 // ---------- 間取り・駅・区 ----------
@@ -246,26 +341,47 @@ export function readNumbers(text: string): NumToken[] {
   return tokens;
 }
 
-function checkNumbers(text: string, question: string, targets: readonly VerifyTarget[], year: number, issues: VerifyIssue[]): void {
-  const allowed = allowedValues(targets, year);
+/** 比べる言い回し（物件どうしの差の数値は、この語のある区切りでだけ通す。主語が分からない区切りでは常に通す） */
+const COMPARISON_CUE_RE = /より|ほうが|方が|差|違い|比べ|安[いく]|高[いく]|近[いく]|遠[いく]|広[いく]|狭[いく]|新し[いく]|古[いく]/;
+
+function checkNumbers(segments: readonly Segment[], question: string, targets: readonly VerifyTarget[], year: number, issues: VerifyIssue[]): void {
+  const perTarget = targets.map((t) => recordValues([t], year));
+  const anyTarget = recordValues(targets, year);
+  const common = positionsAndCounts(targets);
+  const diffs = differences(targets);
   const asked = readNumbers(question);
-  for (const token of readNumbers(text)) {
-    if (matches(allowed, token)) continue;
-    // 質問の条件の復唱（「9万円以内です」「2階以上です」）
-    if (token.comparative && asked.some((q) => q.unit === token.unit && q.value === token.value)) continue;
-    issues.push({ kind: 'number', token: token.raw });
+  for (const segment of segments) {
+    // 主語が決まっていれば、その物件の値だけを通す（「どちらも」は全部の物件の値に当たること）
+    const pools =
+      segment.indices === null
+        ? [anyTarget]
+        : segment.every
+          ? segment.indices.map((i) => perTarget[i])
+          : [recordValues(segment.indices.map((i) => targets[i]), year)];
+    const comparing = segment.indices === null || COMPARISON_CUE_RE.test(segment.text);
+    for (const token of readNumbers(segment.text)) {
+      if (matches(common, token)) continue;
+      if (pools.every((pool) => matches(pool, token) || (comparing && matches(diffs, token)))) continue;
+      // 質問の条件の復唱（「9万円以内です」「2階以上です」）
+      if (token.comparative && asked.some((q) => q.unit === token.unit && q.value === token.value)) continue;
+      issues.push({ kind: 'number', token: token.raw });
+    }
   }
 }
 
 type Allowed = Record<Unit, number[]>;
 
-/** 単位ごとに、回答に書いてよい値（レコードの値と、比較のための物件どうしの差） */
-function allowedValues(targets: readonly VerifyTarget[], year: number): Allowed {
-  const a: Allowed = {
+function emptyAllowed(): Allowed {
+  return {
     yen: [], minute: [], sqm: [], floor: [], year: [], yearSpan: [], age: [], months: [],
     month: [], day: [], monthDay: [], ymd: [], position: [], count: [], unknown: [],
   };
-  for (const { property: p, position } of targets) {
+}
+
+/** 単位ごとに、回答に書いてよいレコードの値（渡した物件の分）。表示番号と件数は対象物件の全部を通す */
+function recordValues(targets: readonly VerifyTarget[], year: number): Allowed {
+  const a = emptyAllowed();
+  for (const { property: p } of targets) {
     a.yen.push(p.rent, p.managementFee, p.rent + p.managementFee);
     a.minute.push(...p.access.map((x) => x.walkMin));
     a.sqm.push(p.areaSqm);
@@ -283,10 +399,21 @@ function allowedValues(targets: readonly VerifyTarget[], year: number): Allowed 
       a.month.push(m);
       a.day.push(d);
     }
-    if (position !== null) a.position.push(position);
   }
+  return a;
+}
+
+/** どの区切りでも通す値: 対象物件の表示番号と件数 */
+function positionsAndCounts(targets: readonly VerifyTarget[]): Allowed {
+  const a = emptyAllowed();
+  for (const { position } of targets) if (position !== null) a.position.push(position);
   for (let n = 1; n <= targets.length; n++) a.count.push(n);
-  // 比較（「2番目のほうが5,000円安い」「3分近い」）
+  return a;
+}
+
+/** 比較のための物件どうしの差（「2番目のほうが5,000円安い」「3分近い」） */
+function differences(targets: readonly VerifyTarget[]): Allowed {
+  const a = emptyAllowed();
   for (let i = 0; i < targets.length; i++) {
     for (let j = i + 1; j < targets.length; j++) {
       const p = targets[i].property;
@@ -441,22 +568,101 @@ function polarityAt(sentence: string, spans: readonly TermSpan[], index: number)
   return ABSENT_RE.test(window) ? 'absent' : 'present';
 }
 
-function checkTerms(text: string, properties: readonly Property[], issues: VerifyIssue[]): void {
-  for (const sentence of text.split(/(?<=[。！？!?\n])/)) {
+/** 区切りの主語に当たる物件（主語が分からなければ全部）と、全部に当てはまることを求めるか */
+function subjectOf(segment: Segment, properties: readonly Property[]): { properties: readonly Property[]; every: boolean } {
+  if (segment.indices === null) return { properties, every: false };
+  return { properties: segment.indices.map((i) => properties[i]), every: segment.every };
+}
+
+/** 語を極性つきで書いたことを照合する（設備はレコードと、レコードに無い設備と禁止トピックは書いたこと自体を問題にする） */
+function judgeTerm(
+  term: Term,
+  word: string,
+  polarity: 'present' | 'absent',
+  subject: { properties: readonly Property[]; every: boolean },
+  issues: VerifyIssue[],
+): void {
+  if (term.kind === 'unknownFacility') {
+    issues.push({ kind: 'unknownFacility', word });
+  } else if (term.kind === 'forbidden') {
+    issues.push({ kind: 'forbidden', topic: term.topic });
+  } else {
+    const claimed: 'present' | 'absent' = (polarity === 'present') !== Boolean(term.invert) ? 'present' : 'absent';
+    const holds = (p: Property) => (claimed === 'present' ? term.has(p) : !term.has(p));
+    const ok = subject.every ? subject.properties.every(holds) : subject.properties.some(holds);
+    if (!ok) issues.push({ kind: 'feature', feature: term.feature, claimed });
+  }
+}
+
+function checkTerms(segments: readonly Segment[], properties: readonly Property[], issues: VerifyIssue[]): void {
+  for (const segment of segments) {
+    const subject = subjectOf(segment, properties);
+    for (const sentence of segment.text.split(/(?<=[。！？!?\n])/)) {
+      const spans = findTerms(sentence);
+      spans.forEach((span, i) => {
+        const polarity = polarityAt(sentence, spans, i);
+        if (polarity !== 'neutral') judgeTerm(span.term, span.word, polarity, subject, issues);
+      });
+    }
+  }
+}
+
+// ---------- 主語を省いた答え（意思決定ログ27） ----------
+
+/** 質問の前提を打ち消す言い回し（「いいえ、そうではありません」）。「ません」の否定より先に見る */
+const DENY_RE = /違います|ちがいます|そうではありません|そうではない|そうじゃない/;
+/** 有ることを言う述語（「はい、付いています」「飼えます」） */
+const AFFIRM_RE =
+  /あります|ございます|付いています|ついています|付いてます|ついてます|付きです|つきです|完備|設置されています|可能です|できます|大丈夫です|OKです|可です|使えます|飼えます|置けます|住めます|弾けます/;
+/** 質問の前提に同意する言い回し（「はい」「そうです」）。答えの極性は質問の極性と同じ */
+const CONFIRM_RE = /^(?:はい|ええ)|そうです|その通り|そのとおり|おっしゃる通り|おっしゃるとおり/;
+
+type EllipticalClaim = 'present' | 'absent' | 'confirm' | 'deny' | 'neutral';
+
+function ellipticalClaim(text: string): EllipticalClaim | null {
+  const t = text.replace(NOT_NEGATION_RE, '');
+  if (NEUTRAL_RE.test(t)) return 'neutral';
+  if (DENY_RE.test(t)) return 'deny';
+  if (ABSENT_RE.test(t)) return 'absent';
+  if (AFFIRM_RE.test(t)) return 'present';
+  if (CONFIRM_RE.test(t.replaceAll(SEP, '').trim())) return 'confirm';
+  if (/^いいえ/.test(t.trim())) return 'deny';
+  return null;
+}
+
+function sameTerm(a: Term, b: Term): boolean {
+  if (a === b) return true;
+  if (a.kind === 'feature' && b.kind === 'feature') return a.feature === b.feature;
+  if (a.kind === 'forbidden' && b.kind === 'forbidden') return a.topic === b.topic;
+  return false;
+}
+
+/**
+ * 質問の語に触れずに答えた区切り（「はい、付いています」「いいえ、ありません」「そうです」「エントランスに電子錠が付いています」）を、
+ * 質問の語について言ったものとして照合する。回答のどこかで質問の語を書いていれば、そちら（checkTerms）で見るので使わない。
+ * 見るのは、語を含まない区切りのうち有無を言った最初の1つだけ（「内見もできます」のような後の文を質問の答えにしない）
+ */
+function checkElliptical(segments: readonly Segment[], question: string, properties: readonly Property[], issues: VerifyIssue[]): void {
+  const asked: { term: Term; word: string; polarity: Polarity }[] = [];
+  for (const sentence of question.split(/(?<=[。！？!?\n])/)) {
     const spans = findTerms(sentence);
-    spans.forEach((span, i) => {
-      const polarity = polarityAt(sentence, spans, i);
-      if (polarity === 'neutral') return;
-      const { term } = span;
-      if (term.kind === 'unknownFacility') {
-        issues.push({ kind: 'unknownFacility', word: span.word });
-      } else if (term.kind === 'forbidden') {
-        issues.push({ kind: 'forbidden', topic: term.topic });
-      } else {
-        const claimed: 'present' | 'absent' = (polarity === 'present') !== Boolean(term.invert) ? 'present' : 'absent';
-        const ok = claimed === 'present' ? properties.some(term.has) : properties.some((p) => !term.has(p));
-        if (!ok) issues.push({ kind: 'feature', feature: term.feature, claimed });
-      }
-    });
+    spans.forEach((span, i) => asked.push({ term: span.term, word: span.word, polarity: polarityAt(sentence, spans, i) }));
+  }
+  const mentioned = segments.flatMap((s) => findTerms(s.text).map((span) => span.term));
+  const unanswered = asked.filter((a) => !mentioned.some((m) => sameTerm(m, a.term)));
+  if (unanswered.length === 0) return;
+
+  for (const segment of segments) {
+    if (findTerms(segment.text).length > 0) continue;
+    const claim = ellipticalClaim(segment.text);
+    if (claim === null) continue;
+    if (claim === 'neutral') return;
+    const subject = subjectOf(segment, properties);
+    for (const a of unanswered) {
+      const polarity =
+        claim === 'confirm' ? a.polarity : claim === 'deny' ? (a.polarity === 'present' ? 'absent' : a.polarity === 'absent' ? 'present' : 'neutral') : claim;
+      if (polarity !== 'neutral') judgeTerm(a.term, a.word, polarity, subject, issues);
+    }
+    return;
   }
 }

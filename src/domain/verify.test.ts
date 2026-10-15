@@ -872,6 +872,118 @@ describe('正しい回答を捨てていた誤検出（攻撃的質問の実 API
   });
 });
 
+describe('主語を省いた答え（質問の語に触れずに有無を言った。意思決定ログ27）', () => {
+  const ask = (question: string, text: string, property: Property) => run({ name: '', question, text, targets: [at(property)] });
+
+  it('「はい、付いています」は質問の設備が有ると言ったものとして照合する', () => {
+    expect(ask('1番目はオートロックありますか？', 'はい、付いています。', MOMIJI).issues).toContainEqual({
+      kind: 'feature',
+      feature: 'オートロック',
+      claimed: 'present',
+    });
+    expect(ask('1番目はオートロックありますか？', 'はい、付いています。', TSUBAKI).ok).toBe(true);
+  });
+
+  it('言い換え（「エントランスに電子錠が付いています」）も同じ', () => {
+    expect(ask('オートロックありますか？', 'エントランスに電子錠が付いています。', MOMIJI).ok).toBe(false);
+  });
+
+  it('「いいえ、ありません」は無いと言ったもの', () => {
+    expect(ask('オートロックありますか？', 'いいえ、ありません。', TSUBAKI).issues).toContainEqual({
+      kind: 'feature',
+      feature: 'オートロック',
+      claimed: 'absent',
+    });
+    expect(ask('オートロックありますか？', 'いいえ、ありません。', MOMIJI).ok).toBe(true);
+  });
+
+  it('「そうです」「そうではありません」は質問の前提の極性で読む', () => {
+    // ペット不可ですよね？ → そうです ＝ 不可
+    expect(ask('ペット不可ですよね？', 'はい、そうです。', TSUBAKI).issues).toContainEqual({
+      kind: 'feature',
+      feature: 'ペット可',
+      claimed: 'absent',
+    });
+    expect(ask('ペット不可ですよね？', 'はい、そうです。', MOMIJI).ok).toBe(true);
+    // ペット不可ですよね？ → そうではありません ＝ 飼える
+    expect(ask('ペット不可ですよね？', 'いいえ、そうではありません。', MOMIJI).issues).toContainEqual({
+      kind: 'feature',
+      feature: 'ペット可',
+      claimed: 'present',
+    });
+    expect(ask('ペット不可ですよね？', 'いいえ、そうではありません。', TSUBAKI).ok).toBe(true);
+  });
+
+  it('レコードに無い設備・禁止トピックを省いた形で答えても落とす', () => {
+    expect(ask('エレベーターはありますか？', 'はい、あります。', MOMIJI).issues).toContainEqual({ kind: 'unknownFacility', word: 'エレベーター' });
+    expect(ask('今、空室ありますか？', 'はい、大丈夫です。', MOMIJI).issues).toContainEqual({ kind: 'forbidden', topic: 'vacancy' });
+  });
+
+  it('記載なし・担当者が確認する答えは通す', () => {
+    expect(ask('オートロックありますか？', '物件情報に記載がありません。担当者が確認します。', MOMIJI).ok).toBe(true);
+  });
+
+  it('回答が質問の設備を自分で書いていれば使わない（後ろの「内見もできます」を答えにしない）', () => {
+    expect(ask('オートロックありますか？', 'オートロックの記載はありません。内見もできます。', MOMIJI).ok).toBe(true);
+  });
+
+  it('見るのは有無を言った最初の区切りだけ', () => {
+    expect(ask('オートロックありますか？', 'はい、付いています。内見もできます。', TSUBAKI).ok).toBe(true);
+  });
+
+  it('ほかの設備を挙げた文は、質問の設備の答えにしない', () => {
+    expect(ask('オートロックありますか？', 'エアコンがあります。', MOMIJI).ok).toBe(true);
+  });
+});
+
+describe('対象が複数のときは、物件ごとに照合する（意思決定ログ27）', () => {
+  const both = (text: string, question = '') => run({ name: '', question, text, targets: pair });
+
+  it('「1番目は」の数値は1番目の値だけと照合する（2番目の値との入れ違いを落とす）', () => {
+    expect(both('1番目は徒歩6分です。').issues).toContainEqual({ kind: 'number', token: '6分' });
+    expect(both('1番目は家賃70,000円、2番目は家賃81,000円です。').ok).toBe(false);
+    expect(both('1番目は家賃81,000円、2番目は家賃70,000円です。').ok).toBe(true);
+  });
+
+  it('物件名も主語になる（名前と番号を並べた形も）', () => {
+    expect(both('つばきハイツは徒歩10分です。').ok).toBe(false);
+    expect(both('もみじフラットは徒歩10分です。').ok).toBe(true);
+    expect(both('つばきハイツ（2番目）はオートロック付きです。').ok).toBe(true);
+  });
+
+  it('片方にだけある設備を、もう片方に「ある」と書いたら落とす', () => {
+    expect(both('1番目はオートロック付きです。').issues).toContainEqual({ kind: 'feature', feature: 'オートロック', claimed: 'present' });
+    expect(both('2番目はオートロック付きです。').ok).toBe(true);
+  });
+
+  it('主語の無い文は直前の主語を引き継ぐ', () => {
+    expect(both('2番目は渋谷駅から徒歩6分です。オートロックも付いています。').ok).toBe(true);
+    expect(both('1番目は徒歩10分です。オートロックも付いています。').ok).toBe(false);
+  });
+
+  it('「どちらも」「1番目と2番目は」は全部の物件に当てはまること', () => {
+    expect(both('どちらもオートロック付きです。').issues).toContainEqual({ kind: 'feature', feature: 'オートロック', claimed: 'present' });
+    expect(both('1番目と2番目はペット可です。').ok).toBe(false);
+    expect(both('どちらもバストイレ別の記載はありません。').ok).toBe(true);
+  });
+
+  it('比べる相手（「1番目と違って」「1番目より」）は主語にしない', () => {
+    expect(both('2番目は1番目と違ってオートロックがあります。').ok).toBe(true);
+    expect(both('1番目は2番目と違ってオートロックがあります。').ok).toBe(false);
+  });
+
+  it('物件どうしの差は、比べる言い回しのある区切りでだけ通す', () => {
+    expect(both('2番目のほうが1番目より月額が10,000円安いです。').ok).toBe(true);
+    // 管理費の差 1,000円 を2番目の管理費として書いた
+    expect(both('2番目の管理費は1,000円です。').issues).toContainEqual({ kind: 'number', token: '1,000円' });
+  });
+
+  it('主語を省いた答えも、その区切りの物件で照合する', () => {
+    expect(both('2番目は付いています。1番目は付いていません。', '1番目と2番目はオートロックありますか？').ok).toBe(true);
+    expect(both('1番目は付いています。', '1番目と2番目はオートロックありますか？').ok).toBe(false);
+  });
+});
+
 describe('saysNotInRecord', () => {
   it.each([
     ['物件情報に駐輪場の記載はありません。', true],
