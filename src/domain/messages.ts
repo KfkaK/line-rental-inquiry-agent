@@ -4,6 +4,7 @@
  */
 import { formatJstDay } from './businessHours';
 import { formatDate, formatManYen, formatYen } from './labels';
+import { DEFAULT_WALK_PREFERENCE_MIN } from './rules';
 import { monthlyCost } from './search';
 import type { ConditionSummary } from './slots';
 import type { ForbiddenTopic, Priority, Property, ScalarSlotKey } from './types';
@@ -61,8 +62,21 @@ export function conditionsSummary(conditions: readonly ConditionSummary[]): stri
   return parts.join(' / ');
 }
 
-export function searchIntro(total: number, shown: number, summary: string): string {
-  return `条件に合う物件が${total}件あります。合っている順に${shown}件お見せします。\n（${summary}）`;
+export interface SearchIntroNotes {
+  /** 上位（1ページ目）が直前に見せた1ページ目と同じ。条件を変えても反応が無いように見えないよう一言添える（意思決定ログ24） */
+  sameAsBefore?: boolean;
+  /** 徒歩の条件が無いので、徒歩の目安（DEFAULT_WALK_PREFERENCE_MIN）で並べた。並びの理由を見せる */
+  walkGuide?: boolean;
+}
+
+export function searchIntro(total: number, shown: number, summary: string, notes: SearchIntroNotes = {}): string {
+  const lines = [`条件に合う物件が${total}件あります。合っている順に${shown}件お見せします。`];
+  if (notes.sameAsBefore) {
+    lines.push(total > shown ? `上位${shown}件は前回と同じです。続きは「もっと見る」からご覧ください。` : '前回と同じ物件です。');
+  }
+  lines.push(`（${summary}）`);
+  if (notes.walkGuide) lines.push(`駅からの徒歩は${DEFAULT_WALK_PREFERENCE_MIN}分以内を目安に並べています。`);
+  return lines.join('\n');
 }
 
 export function noResults(summary: string): string {

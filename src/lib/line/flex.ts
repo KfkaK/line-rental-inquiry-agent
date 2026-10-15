@@ -1,6 +1,7 @@
 import type { messagingApi } from '@line/bot-sdk';
 import { theme } from '@/constants/theme';
 import { DISCLAIMER } from '@/domain/messages';
+import { relevantAccess } from '@/domain/search';
 import type { ScoredProperty } from '@/domain/types';
 import { buildPostbackData, POSTBACK_DATA_MAX_LENGTH } from './postback';
 
@@ -71,8 +72,19 @@ function infoLine(text: string): FlexComponent {
   return { type: 'text', text: nonEmpty(text, '-'), size: 'sm', color: c.textSecondary, wrap: true };
 }
 
+/**
+ * 駅の行。聞かれた駅（displayAccess）を先に出し、ほかの駅のほうが近ければ「（最寄りは祐天寺駅 徒歩15分）」を添える。
+ * 「中目黒駅 徒歩22分」だけだと、近い駅があることが伝わらないため（意思決定ログ24）
+ */
+export function stationLine(item: ScoredProperty): string {
+  const shown = item.displayAccess;
+  const nearest = relevantAccess(item.property);
+  const head = `${shown.station}駅 徒歩${shown.walkMin}分`;
+  return nearest.walkMin < shown.walkMin ? `${head}（最寄りは${nearest.station}駅 徒歩${nearest.walkMin}分）` : head;
+}
+
 function buildBubble(item: ScoredProperty, position: number): FlexBubble {
-  const { property: p, displayAccess: access } = item;
+  const { property: p } = item;
   const tail = matchTail(item);
 
   const matchSpans: messagingApi.FlexSpan[] = [
@@ -111,7 +123,7 @@ function buildBubble(item: ScoredProperty, position: number): FlexBubble {
           ],
         },
         infoLine(`${p.layout} ・ ${p.areaSqm}㎡`),
-        infoLine(`${access.station}駅 徒歩${access.walkMin}分`),
+        infoLine(stationLine(item)),
         infoLine(`${p.floor}階 ・ ${p.builtYear}年築`),
         { type: 'separator', margin: 'md', color: c.border },
         { type: 'text', wrap: true, margin: 'md', size: 'sm', contents: matchSpans },

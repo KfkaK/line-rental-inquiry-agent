@@ -18,7 +18,7 @@ import {
   VIEWING_CANDIDATES_MIN,
   VIEWING_DAYS_TO_OFFER,
 } from './rules';
-import { searchProperties } from './search';
+import { searchProperties, usesDefaultWalkPreference } from './search';
 import { applySlotOps, emptySlots, listConditions, missingForSearch, priorityOp, sameRef, type ConditionSummary } from './slots';
 import type {
   BookingDraft,
@@ -276,10 +276,20 @@ function presentSearch(conv: ConversationSnapshot, slots: Slots, ctx: TurnContex
 
   const page = result.items.slice(0, PAGE_SIZE);
   const hasMore = result.total > page.length;
+  // 直前に見せた1ページ目（shownPropertyIds の先頭。「もっと見る」で後ろに伸びる）と同じ並びなら、そう添える
+  const previousFirstPage = conv.shownPropertyIds.slice(0, PAGE_SIZE);
+  const sameAsBefore =
+    previousFirstPage.length === page.length && page.every((item, i) => item.property.id === previousFirstPage[i]);
   const decision: TurnDecision = {
     ...base(conv),
     replies: [
-      { type: 'text', text: msg.searchIntro(result.total, page.length, summary) },
+      {
+        type: 'text',
+        text: msg.searchIntro(result.total, page.length, summary, {
+          sameAsBefore,
+          walkGuide: usesDefaultWalkPreference(slots),
+        }),
+      },
       { type: 'carousel', items: page, startPosition: 1, hasMore },
     ],
     next: { ...conv, state: 'presenting', slots, shownPropertyIds: page.map((i) => i.property.id) },

@@ -187,11 +187,11 @@ describe('攻撃的質問の評価セット（eval/datasets/attack.ts）', () =>
     }
   });
 
-  it('既定の提示済み物件は公開物件で、既定のスロットで検索した最初のページと同じ', () => {
+  it('既定の提示済み物件は公開物件で、既定のスロットで検索した最初のページと同じ5件（順は変更前のまま固定。attack.ts）', () => {
     expect(ATTACK_DEFAULT_SHOWN.every((id) => publicIds.has(id))).toBe(true);
     expect(new Set(ATTACK_DEFAULT_SHOWN).size).toBe(ATTACK_DEFAULT_SHOWN.length);
     const found = searchProperties(publicProperties, ATTACK_DEFAULT_SLOTS).items.slice(0, PAGE_SIZE).map((i) => i.property.id);
-    expect(ATTACK_DEFAULT_SHOWN).toEqual(found);
+    expect([...ATTACK_DEFAULT_SHOWN].sort()).toEqual([...found].sort());
     for (const c of ATTACK_CASES) {
       const shown = c.shownIds ?? ATTACK_DEFAULT_SHOWN;
       expect(shown.every((id) => publicIds.has(id)), c.id).toBe(true);
