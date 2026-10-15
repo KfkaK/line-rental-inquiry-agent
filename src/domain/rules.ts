@@ -34,6 +34,13 @@ export const RENT_PARTIAL_TOLERANCE_YEN = 5000;
 /** 階数: 下限−この階までは部分点（2階以上 want に対し 1階 → 部分点なし。0 で無効） */
 export const FLOOR_PARTIAL_TOLERANCE = 0;
 
+/**
+ * 徒歩の条件が無いときの並びの目安（意思決定ログ24）。聞かれた駅（エリアの駅。無ければ最寄り駅）までこの分数以内を
+ * 「あれば嬉しい」（重み nice・許容幅 WALK_PARTIAL_TOLERANCE_MIN）として採点に足す。スロットには入れないので、
+ * 条件のまとめ・カードの「希望N件中M件」・外せない条件を聞く判定には出ない。15分は SUUMO が駅の家賃相場を集計する範囲
+ */
+export const DEFAULT_WALK_PREFERENCE_MIN = 15;
+
 /** 予算と比べる金額に管理費を含める（「月々いくら」の感覚に合わせる） */
 export const BUDGET_INCLUDES_MANAGEMENT_FEE = true;
 

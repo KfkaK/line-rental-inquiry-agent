@@ -1,8 +1,9 @@
 /**
  * 優先順位つき検索（純関数。DESIGN.md 3.2.1・4.2）。
  * 1. must の条件で絞り込む（全か無か）
- * 2. 残った物件を want（重み2）/ nice（重み1）の一致度でスコア化する。数値条件は段階評価で部分点
- * 3. スコア降順 → 月額の安い順 → 物件 ID 昇順で並べる（決定的）
+ * 2. 残った物件を want（重み2）/ nice（重み1）の一致度でスコア化する。数値条件は段階評価で部分点。
+ *    徒歩の条件が無いときは、徒歩の目安（rules.DEFAULT_WALK_PREFERENCE_MIN）を nice として採点に足す（意思決定ログ24）
+ * 3. スコア降順 → 月額の安い順 → 徒歩の近い順 → 物件 ID 昇順で並べる（決定的）
  *
  * must の絞り込みは SQL の WHERE ではなく、公開物件を全件取得してこの関数で行う（意思決定ログ2）。
  */
@@ -10,6 +11,7 @@ import { formatDate, formatManYen } from './labels';
 import { listConditions } from './slots';
 import {
   BUDGET_INCLUDES_MANAGEMENT_FEE,
+  DEFAULT_WALK_PREFERENCE_MIN,
   FLOOR_PARTIAL_TOLERANCE,
   PARTIAL_CREDIT,
   PRIORITY_WEIGHT,
@@ -102,11 +104,26 @@ function evaluate(ref: ConditionRef, property: Property, slots: Slots): Evaluati
   }
 }
 
+/**
+ * 徒歩の条件が無いので、徒歩の目安（DEFAULT_WALK_PREFERENCE_MIN 分以内を nice）で並べるか。
+ * 「中目黒で」と言われて中目黒まで徒歩22分の物件が安さだけで1番目に来ないようにする（意思決定ログ24）
+ */
+export function usesDefaultWalkPreference(slots: Slots): boolean {
+  return slots.walkMax === undefined;
+}
+
 /** 1件を評価する。must を1つでも満たさなければ null */
 export function scoreProperty(property: Property, slots: Slots): ScoredProperty | null {
   const conditions: ConditionResult[] = [];
   let weighted = 0;
   let totalWeight = 0;
+  // 徒歩の目安は採点だけに効かせ、conditions（カードの「希望N件中M件」と不足の説明）には入れない。利用者が言っていない条件のため
+  if (usesDefaultWalkPreference(slots)) {
+    const walk = relevantAccess(property, slots.area?.value).walkMin;
+    const w = PRIORITY_WEIGHT.nice;
+    weighted += w * gradeUpperBound(walk, DEFAULT_WALK_PREFERENCE_MIN, WALK_PARTIAL_TOLERANCE_MIN);
+    totalWeight += w;
+  }
   for (const c of listConditions(slots)) {
     const { credit, shortfall } = evaluate(c.ref, property, slots);
     if (c.priority === 'must') {
@@ -128,10 +145,13 @@ export function scoreProperty(property: Property, slots: Slots): ScoredProperty 
   };
 }
 
+/** スコア降順 → 月額の安い順 → 徒歩（表示に使う駅まで）の近い順 → 物件 ID 昇順 */
 function compareScored(a: ScoredProperty, b: ScoredProperty): number {
   if (a.score !== b.score) return b.score - a.score;
   const cost = monthlyCost(a.property) - monthlyCost(b.property);
   if (cost !== 0) return cost;
+  const walk = a.displayAccess.walkMin - b.displayAccess.walkMin;
+  if (walk !== 0) return walk;
   return a.property.id < b.property.id ? -1 : a.property.id > b.property.id ? 1 : 0;
 }
 

@@ -146,7 +146,7 @@ export interface ConditionResult {
 
 export interface ScoredProperty {
   property: Property;
-  /** want/nice の加重一致率 0〜1。want/nice が無ければ 1 */
+  /** want/nice（徒歩の条件が無いときは徒歩の目安も nice として）の加重一致率 0〜1。どれも無ければ 1 */
   score: number;
   /** must を含む全条件の評価（must は絞り込み済みなので常に credit 1） */
   conditions: ConditionResult[];

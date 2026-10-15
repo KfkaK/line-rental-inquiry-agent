@@ -92,6 +92,31 @@ describe('ヒアリングと検索', () => {
     const d = search(shibuya(3), AREA_AND_BUDGET, fresh(), NIGHT);
     expect(texts(d)[0]).toContain('営業時間外');
   });
+
+  it('徒歩の条件が無いときは、徒歩の目安で並べたことを添える（あれば添えない）', () => {
+    expect(texts(search(shibuya(3)))[0]).toContain('駅からの徒歩は15分以内を目安に並べています');
+    const withWalk = search(shibuya(3), [...AREA_AND_BUDGET, { op: 'set', key: 'walkMax', value: 10 }]);
+    expect(texts(withWalk)[0]).not.toContain('目安');
+  });
+
+  it('条件を変えても1ページ目が前回と同じなら、そう添える（初回と、並びが変わったときは添えない）', () => {
+    const props = shibuya(8);
+    const first = search(props);
+    expect(texts(first)[0]).not.toContain('前回と同じ');
+    // 「もっと見る」の後でも、比べるのは前回の1ページ目
+    const more = decideTurn(first.next, { kind: 'more' }, ctx(props));
+    const same = search(props, [{ op: 'addTag', tag: 'オートロック' }], more.next);
+    expect(texts(same)[0]).toContain('上位5件は前回と同じです。続きは「もっと見る」からご覧ください。');
+    // 1ページで収まるときは「もっと見る」に触れない
+    const few = shibuya(3);
+    const again = search(few, [{ op: 'addTag', tag: 'オートロック' }], search(few).next);
+    expect(texts(again)[0]).toContain('前回と同じ物件です。');
+    expect(texts(again)[0]).not.toContain('もっと見る');
+    // 並びが変わったら添えない（オートロック付きの S008 が先頭に来る）
+    const locked = shibuya(8).map((p) => (p.id === 'S008' ? { ...p, tags: [...p.tags, 'オートロック' as const] } : p));
+    const changed = search(locked, [{ op: 'addTag', tag: 'オートロック' }], search(locked).next);
+    expect(texts(changed)[0]).not.toContain('前回と同じ');
+  });
 });
 
 describe('優先順位と緩和', () => {

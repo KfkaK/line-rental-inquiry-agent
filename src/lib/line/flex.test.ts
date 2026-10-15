@@ -11,6 +11,7 @@ import {
   MAX_BUBBLES,
   MAX_QUICK_REPLIES,
   QUICK_REPLY_LABEL_MAX_LENGTH,
+  stationLine,
   withQuickReply,
 } from './flex';
 import { parsePostbackData } from './postback';
@@ -161,15 +162,30 @@ describe('buildPropertyCarousel', () => {
     expect(all).toContain('・オートロックなし');
   });
 
-  it('displayAccess を使う（最寄りでなくエリア条件の駅を表示できる）', () => {
+  it('displayAccess（エリア条件の駅）を先に出し、ほかの駅のほうが近ければ最寄りを添える', () => {
     const item = makeItem(
       'P001',
       { displayAccess: { station: '恵比寿', walkMin: 12 } },
       { access: [{ station: '渋谷', walkMin: 7 }, { station: '恵比寿', walkMin: 12 }] },
     );
+    expect(stationLine(item)).toBe('恵比寿駅 徒歩12分（最寄りは渋谷駅 徒歩7分）');
     const { bubbles } = carouselOf(buildPropertyCarousel([item], { startPosition: 1, hasMore: false }));
-    expect(JSON.stringify(bubbles)).toContain('恵比寿駅 徒歩12分');
-    expect(JSON.stringify(bubbles)).not.toContain('渋谷駅 徒歩7分');
+    expect(JSON.stringify(bubbles)).toContain('恵比寿駅 徒歩12分（最寄りは渋谷駅 徒歩7分）');
+  });
+
+  it('表示する駅が最寄り（同じ分数を含む）なら駅は1つだけ', () => {
+    const nearest = makeItem(
+      'P001',
+      { displayAccess: { station: '渋谷', walkMin: 7 } },
+      { access: [{ station: '渋谷', walkMin: 7 }, { station: '恵比寿', walkMin: 12 }] },
+    );
+    expect(stationLine(nearest)).toBe('渋谷駅 徒歩7分');
+    const tie = makeItem(
+      'P002',
+      { displayAccess: { station: '恵比寿', walkMin: 7 } },
+      { access: [{ station: '渋谷', walkMin: 7 }, { station: '恵比寿', walkMin: 7 }] },
+    );
+    expect(stationLine(tie)).toBe('恵比寿駅 徒歩7分');
   });
 
   it('ボタンは「詳細」「内見を希望」で、postback に物件 ID が入る', () => {

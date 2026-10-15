@@ -43,9 +43,13 @@ describe('must の絞り込み', () => {
   });
 });
 
+/** 徒歩の条件を must で置き、徒歩の目安（採点に足す nice）を外して重みだけを見る */
+const NO_WALK_GUIDE = { walkMax: { value: 30, priority: 'must' as const } };
+
 describe('want / nice のスコア', () => {
   it('want は重み2、nice は重み1', () => {
     const slots = baseSlots({
+      ...NO_WALK_GUIDE,
       tags: [
         { value: 'オートロック', priority: 'want' },
         { value: '宅配ボックス', priority: 'nice' },
@@ -64,13 +68,14 @@ describe('want / nice のスコア', () => {
   });
 
   it('予算 want は 5,000円超までは部分点', () => {
-    const slots = baseSlots({ rentMax: { value: 90000, priority: 'want' } });
+    const slots = baseSlots({ ...NO_WALK_GUIDE, rentMax: { value: 90000, priority: 'want' } });
     expect(scoreProperty(makeProperty({ rent: 90000, managementFee: 5000 }), slots)!.score).toBeCloseTo(0.6);
     expect(scoreProperty(makeProperty({ rent: 90000, managementFee: 6000 }), slots)!.score).toBe(0);
   });
 
-  it('want/nice が無ければスコア 1', () => {
+  it('want/nice が無く、徒歩の目安（15分）以内ならスコア 1', () => {
     expect(scoreProperty(makeProperty(), baseSlots())!.score).toBe(1);
+    expect(scoreProperty(makeProperty(), baseSlots(NO_WALK_GUIDE))!.score).toBe(1);
   });
 
   it('一致の内訳: matched は条件の文言、unmatched はそのまま表示できる不足の説明', () => {
@@ -86,8 +91,69 @@ describe('want / nice のスコア', () => {
   });
 });
 
+describe('徒歩の目安（徒歩の条件が無いとき。意思決定ログ24）', () => {
+  const nakameguro = baseSlots({ area: { value: { stations: ['中目黒'], wards: [] }, priority: 'must' } });
+  const at = (walkMin: number, over: Parameters<typeof makeProperty>[0] = {}) =>
+    makeProperty({ access: [{ station: '中目黒', walkMin }], ...over });
+
+  it('聞かれた駅まで15分以内は満点、18分までは部分点、それより遠いと 0（nice として採点に足す）', () => {
+    expect(scoreProperty(at(15), nakameguro)!.score).toBe(1);
+    expect(scoreProperty(at(18), nakameguro)!.score).toBeCloseTo(0.6);
+    expect(scoreProperty(at(19), nakameguro)!.score).toBe(0);
+  });
+
+  it('安くても聞かれた駅から遠い物件は、近い物件より後ろ（祐天寺 15分・中目黒 22分 の物件を中目黒で探した場合）', () => {
+    const far = makeProperty({
+      id: 'P0161',
+      rent: 63000,
+      access: [
+        { station: '祐天寺', walkMin: 15 },
+        { station: '中目黒', walkMin: 22 },
+      ],
+    });
+    const near = at(10, { id: 'P0096', rent: 70000 });
+    const result = searchProperties([far, near], nakameguro);
+    expect(result.items.map((i) => i.property.id)).toEqual(['P0096', 'P0161']);
+    expect(result.total).toBe(2); // 絞り込み（must の件数）は変えない
+  });
+
+  it('徒歩の条件があれば（優先度を問わず）目安は使わない', () => {
+    const far = at(22, { id: 'P0001', rent: 63000 });
+    const near = at(10, { id: 'P0002', rent: 70000 });
+    const slots = { ...nakameguro, walkMax: { value: 30, priority: 'nice' as const } };
+    expect(searchProperties([far, near], slots).items.map((i) => i.property.id)).toEqual(['P0001', 'P0002']);
+  });
+
+  it('「できれば」の条件のほうが重い: 遠くても want に合う物件は、近くて want に合わない物件より上', () => {
+    const slots = { ...nakameguro, tags: [{ value: 'オートロック' as const, priority: 'want' as const }] };
+    const farWithLock = at(25, { id: 'P0001', tags: ['オートロック'] });
+    const nearNoLock = at(5, { id: 'P0002', tags: [] });
+    expect(searchProperties([nearNoLock, farWithLock], slots).items.map((i) => i.property.id)).toEqual(['P0001', 'P0002']);
+  });
+
+  it('目安は利用者の条件ではないので、conditions・matched・unmatched（カードの「希望N件中M件」）には入らない', () => {
+    const r = scoreProperty(at(22), nakameguro)!;
+    expect(r.conditions.map((c) => c.label)).toEqual(['中目黒エリア', '予算9万円以内']);
+    expect(r.unmatched).toEqual([]);
+  });
+
+  it('区だけの指定では最寄り駅までの徒歩で見る', () => {
+    const slots = baseSlots({ area: { value: { stations: [], wards: ['渋谷区'] }, priority: 'must' } });
+    const near = makeProperty({ id: 'P0002', rent: 80000, access: [{ station: '代々木', walkMin: 6 }] });
+    const far = makeProperty({ id: 'P0001', rent: 60000, access: [{ station: '代々木', walkMin: 20 }] });
+    expect(searchProperties([far, near], slots).items.map((i) => i.property.id)).toEqual(['P0002', 'P0001']);
+  });
+});
+
 describe('並び順', () => {
-  it('スコア降順 → 月額の安い順 → ID 昇順（決定的）', () => {
+  it('スコアと月額が同じなら、表示する駅まで徒歩の近い順', () => {
+    const slots = baseSlots();
+    const a = makeProperty({ id: 'P0001', rent: 70000, access: [{ station: '渋谷', walkMin: 12 }] });
+    const b = makeProperty({ id: 'P0002', rent: 70000, access: [{ station: '渋谷', walkMin: 5 }] });
+    expect(searchProperties([a, b], slots).items.map((i) => i.property.id)).toEqual(['P0002', 'P0001']);
+  });
+
+  it('スコア降順 → 月額の安い順 → 徒歩の近い順 → ID 昇順（決定的）', () => {
     const slots = baseSlots({ tags: [{ value: 'オートロック', priority: 'want' }] });
     const a = makeProperty({ id: 'P0003', rent: 80000, tags: [] });
     const b = makeProperty({ id: 'P0002', rent: 80000, tags: [] });
