@@ -613,7 +613,7 @@ describe('canonicalizeOps（LLM 出力の後段）', () => {
   });
 });
 
-describe('applyWalkNoPreference（「駅から遠くてもいい」を徒歩の条件にする。意思決定ログ29）', () => {
+describe('applyWalkNoPreference（「駅から遠くてもいい」を徒歩の条件にする。意思決定ログ31）', () => {
   const base = (ops: SlotOp[] = [], intent: ExtractionResult['intent'] = 'conditions'): ExtractionResult => ({
     intent,
     ops,

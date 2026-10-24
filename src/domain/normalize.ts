@@ -1031,7 +1031,7 @@ export function canonicalizeOps(ops: unknown[]): SlotOp[] {
   return canonicalizeOpsWithReport(ops).ops;
 }
 
-// ---------- 徒歩の条件を問わない言い回し（意思決定ログ29） ----------
+// ---------- 徒歩の条件を問わない言い回し（意思決定ログ31） ----------
 
 /**
  * 「駅から遠くてもいい」「徒歩は気にしない」「駅近じゃなくてもいい」。抽出のプロンプトに規則を足すと、

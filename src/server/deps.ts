@@ -38,7 +38,7 @@ export function createExtractor(client = createAnthropicClient(), options: LlmSt
       shown: toShownProperties(shown, slots),
     });
     // 抽出に2回失敗して offTopic に倒れたときだけ、禁止トピックを語で拾う安全網をかける。
-    // 「駅から遠くてもいい」は語で拾って徒歩の条件にする（プロンプトの規則にすると他の徒歩の発話が崩れた。意思決定ログ29）
+    // 「駅から遠くてもいい」は語で拾って徒歩の条件にする（プロンプトの規則にすると他の徒歩の発話が崩れた。意思決定ログ31）
     const result = applyWalkNoPreference(withKeywordSafetyNet(out.result, utterance, out.fallback), utterance);
     return { result, latencyMs: out.latencyMs, costUsd: out.costUsd, model: out.model };
   };
