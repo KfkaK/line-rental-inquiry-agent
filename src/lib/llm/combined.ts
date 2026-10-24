@@ -24,6 +24,7 @@
  * 1つの pipeline は1会話で使う前提（預けた回答は1つだけで、次の `extract` で上書きされる）。
  * 会話を並行で回すときは、会話ごとに `createCombinedPipeline` を作る。
  */
+import { applyWalkNoPreference } from '../../domain/normalize';
 import type { Answerer, AnswerOutput, ExtractInput, Extractor } from '../../server/handleEvent';
 import {
   ANSWER_EXAMPLE_NOW,
@@ -228,8 +229,8 @@ export function createCombinedPipeline(
     const answer = pickAnswer(out.toolInput);
     if (answer !== undefined) pending = { utterance, toolInput: answer, model: out.model };
     return {
-      // 抽出に2回失敗して offTopic に倒れたときだけ、禁止トピックを語で拾う安全網をかける（2モデル構成と同じ）
-      result: withKeywordSafetyNet(out.result, utterance, out.fallback),
+      // 抽出に2回失敗して offTopic に倒れたときだけ、禁止トピックを語で拾う安全網をかける。「駅から遠くてもいい」も語で拾う（2モデル構成と同じ）
+      result: applyWalkNoPreference(withKeywordSafetyNet(out.result, utterance, out.fallback), utterance),
       latencyMs: out.latencyMs,
       costUsd: out.costUsd,
       model: out.model,
