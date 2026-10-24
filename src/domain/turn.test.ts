@@ -337,7 +337,11 @@ describe('内見の仮受付', () => {
   });
 
   it('1件だけでも「この日時で送る」で受け付ける', () => {
-    const conv: ConversationSnapshot = { ...presented(), booking: { propertyId: 'S002', candidateTimes: ['2026-10-09T11:00'] } };
+    const conv: ConversationSnapshot = {
+      ...presented(),
+      state: 'booking',
+      booking: { propertyId: 'S002', candidateTimes: ['2026-10-09T11:00'] },
+    };
     const d = decideTurn(conv, { kind: 'bookingSubmit' }, ctx(props, NIGHT));
     expect(d.viewingRequest).toEqual({ propertyId: 'S002', candidateTimes: ['2026-10-09T11:00'] });
   });
@@ -346,6 +350,88 @@ describe('内見の仮受付', () => {
     const d = decideTurn(presented(), { kind: 'viewing', propertyId: 'GONE' }, ctx(props, NIGHT));
     expect(d.viewingRequest).toBeNull();
     expect(texts(d)[0]).toContain('ご案内できません');
+  });
+});
+
+describe('内見の下書きは聞き取り中（state = booking）の間だけ持つ', () => {
+  /** 番号を言わずに日時だけ送る */
+  const DATES_ONLY = {
+    kind: 'text',
+    text: '8日の14時と9日の10時で',
+    extraction: ex({ intent: 'viewingRequest', viewingTimes: ['2026-10-08T14:00', '2026-10-09T10:00'] }),
+  } as const;
+  const say = (text: string, partial: Partial<ExtractionResult>) => ({ kind: 'text', text, extraction: ex(partial) }) as const;
+
+  /** 検索して1番目（S001）の「内見を希望」を押し、候補日を1つ選んだところ */
+  function midBooking(props: Property[]): ConversationSnapshot {
+    const c = ctx(props, NIGHT);
+    const viewing = decideTurn(search(props, AREA_AND_BUDGET, fresh(), NIGHT).next, { kind: 'viewing', propertyId: 'S001' }, c);
+    const picked = decideTurn(viewing.next, { kind: 'viewingDay', date: '2026-10-08' }, c);
+    expect(picked.next).toMatchObject({ state: 'booking', booking: { propertyId: 'S001', candidateTimes: ['2026-10-08'] } });
+    return picked.next;
+  }
+
+  it('条件を変えたら下書きを捨て、日時だけの発話を前の物件に当てない（番号で聞き返す）', () => {
+    const shinjuku = { access: [{ station: '新宿', walkMin: 5 }] };
+    const props = [...shibuya(3), makeProperty({ id: 'N001', ...shinjuku }), makeProperty({ id: 'N002', ...shinjuku })];
+    const c = ctx(props, NIGHT);
+    const changed = decideTurn(
+      midBooking(props),
+      say('やっぱり新宿で', { ops: [{ op: 'set', key: 'area', value: { stations: ['新宿'], wards: [] } }] }),
+      c,
+    );
+    expect(changed.next).toMatchObject({ state: 'presenting', shownPropertyIds: ['N001', 'N002'], booking: null });
+    const d = decideTurn(changed.next, DATES_ONLY, c);
+    expect(d.viewingRequest).toBeNull();
+    expect(texts(d)).toEqual([expect.stringContaining('カードの番号')]);
+  });
+
+  it('「もっと見る」・別の物件の詳細・質問・引き継ぎに移っても下書きを捨てる', () => {
+    const props = shibuya(8);
+    const c = ctx(props, NIGHT);
+    const moves = [
+      { kind: 'more' },
+      { kind: 'detail', propertyId: 'S002' },
+      say('2番目は駐輪場ある？', { intent: 'propertyQuestion', targetPositions: [2] }),
+      say('2番目は空いてますか？', { intent: 'handoff', forbiddenTopic: 'vacancy', targetPositions: [2] }),
+    ] as const;
+    for (const move of moves) {
+      const moved = decideTurn(midBooking(props), move, c);
+      expect(moved.next.state, move.kind).not.toBe('booking');
+      expect(moved.next.booking, move.kind).toBeNull();
+      expect(decideTurn(moved.next, DATES_ONLY, c).viewingRequest, move.kind).toBeNull();
+    }
+  });
+
+  it('聞き取り中の物件の詳細・質問・引き継ぎ、物件を指さない発話なら聞き取りを続け、選んだ候補日を持ち越す', () => {
+    const props = shibuya(3);
+    const c = ctx(props, NIGHT);
+    const stays = [
+      { kind: 'detail', propertyId: 'S001' },
+      say('1番目は駐輪場ある？', { intent: 'propertyQuestion', targetPositions: [1] }),
+      say('1番目は空いてますか？', { intent: 'handoff', forbiddenTopic: 'vacancy', targetPositions: [1] }),
+      say('ありがとう', { intent: 'offTopic' }),
+    ] as const;
+    for (const move of stays) {
+      const stayed = decideTurn(midBooking(props), move, c);
+      expect(stayed.next.state, move.kind).toBe('booking');
+      const d = decideTurn(stayed.next, say('9日の10時も', { intent: 'viewingRequest', viewingTimes: ['2026-10-09T10:00'] }), c);
+      expect(d.viewingRequest, move.kind).toEqual({ propertyId: 'S001', candidateTimes: ['2026-10-08', '2026-10-09T10:00'] });
+    }
+  });
+
+  it('聞き取り中でない会話に残った下書き（修正前に保存されたもの）は使わない', () => {
+    const props = shibuya(3);
+    const c = ctx(props, NIGHT);
+    const stale: ConversationSnapshot = {
+      ...search(props, AREA_AND_BUDGET, fresh(), NIGHT).next,
+      booking: { propertyId: 'S002', candidateTimes: ['2026-10-09T11:00'] },
+    };
+    expect(decideTurn(stale, { kind: 'bookingSubmit' }, c).viewingRequest).toBeNull();
+    expect(decideTurn(stale, { kind: 'viewingDay', date: '2026-10-08' }, c).viewingRequest).toBeNull();
+    const d = decideTurn(stale, DATES_ONLY, c);
+    expect(d.viewingRequest).toBeNull();
+    expect(d.next.booking).toBeNull();
   });
 });
 
