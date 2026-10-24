@@ -6,17 +6,19 @@
  * 状態は固定の順路にせず、意図を先に見てから状態を参照する。状態は「次に何を聞くか」のヒントに留める。
  * 引き継ぎ（禁止トピック）でも AI の応答は止めない。止めるのは担当者が手動返信したとき（ai_paused）だけ（意思決定ログ2）。
  */
-import { isBusinessDay, isOpenAt, nextContactDay, viewingCandidateDays, formatJstDay } from './businessHours';
+import { addDays, isBusinessDay, isOpenAt, nextContactDay, toJst, viewingCandidateDays, formatJstDay } from './businessHours';
 import * as msg from './messages';
 import { suggestRelaxation } from './relax';
 import {
   ASK_PRIORITY_MAX_PER_CONVERSATION,
   ASK_PRIORITY_WHEN_MORE_THAN,
+  MAX_OPEN_VIEWINGS_PER_CONVERSATION,
   PAGE_SIZE,
   SUGGEST_RELAXATION_AT_OR_BELOW,
   VIEWING_CANDIDATES_MAX,
   VIEWING_CANDIDATES_MIN,
   VIEWING_DAYS_TO_OFFER,
+  VIEWING_MAX_DAYS_AHEAD,
 } from './rules';
 import { searchProperties, usesDefaultWalkPreference } from './search';
 import { applySlotOps, emptySlots, listConditions, missingForSearch, priorityOp, sameRef, type ConditionSummary } from './slots';
@@ -100,6 +102,11 @@ export interface TurnContext {
    * （友だち追加を経ずに話しかけられた会話や、営業時間内にあいさつした会話は、時間外の最初の発話で案内する）
    */
   greeted?: boolean;
+  /**
+   * この会話の未対応（pending・in_progress）の仮受付の物件 ID（サーバーが DB から読む）。同じ物件の未対応があれば新しく受け付けず、
+   * 数が上限（MAX_OPEN_VIEWINGS_PER_CONVERSATION）に達したら受け付けない（セキュリティ点検 A4）。省略は無し
+   */
+  openViewings?: readonly string[];
 }
 
 /**
@@ -414,11 +421,15 @@ function showDetail(conv: ConversationSnapshot, propertyId: string, ctx: TurnCon
 function addViewing(conv: ConversationSnapshot, propertyId: string, times: readonly string[], ctx: TurnContext): TurnDecision {
   const property = ctx.properties.find((p) => p.id === propertyId);
   if (!property) return { ...base(conv), replies: [{ type: 'text', text: msg.propertyUnavailable() }] };
+  // 受け付けられないなら、候補日を聞く前に伝える（ほかの物件の聞き取り中なら、それはそのまま続ける）
+  const blocked = viewingBlocked(property, ctx);
+  if (blocked) return { ...base(conv), replies: [{ type: 'text', text: blocked }] };
 
   const offered = viewingCandidateDays(ctx.now, ctx.calendar, VIEWING_DAYS_TO_OFFER);
   const firstDay = offered[0];
+  const lastDay = addDays(toJst(ctx.now).date, VIEWING_MAX_DAYS_AHEAD);
   const current = conv.booking?.propertyId === propertyId ? conv.booking.candidateTimes : [];
-  const valid = times.filter((t) => isValidViewingTime(t, firstDay, ctx.calendar));
+  const valid = times.filter((t) => isValidViewingTime(t, firstDay, lastDay, ctx.calendar));
   const collected = [...current];
   for (const t of valid) if (!collected.includes(t)) collected.push(t);
   const booking: BookingDraft = { propertyId, candidateTimes: collected.slice(0, VIEWING_CANDIDATES_MAX) };
@@ -426,7 +437,7 @@ function addViewing(conv: ConversationSnapshot, propertyId: string, times: reado
   if (booking.candidateTimes.length >= VIEWING_CANDIDATES_MIN) return finalizeViewing(conv, booking, ctx);
 
   const replies: ReplyBlock[] = [];
-  if (valid.length < times.length) replies.push({ type: 'text', text: msg.invalidViewingTimes(firstDay) });
+  if (valid.length < times.length) replies.push({ type: 'text', text: msg.invalidViewingTimes(firstDay, lastDay) });
   replies.push({ type: 'text', text: msg.askViewingTimes(property.name, booking.candidateTimes, firstDay) });
   const quickReplies: QuickReplyItem[] = offered
     .filter((d) => !booking.candidateTimes.some((t) => t.startsWith(d)))
@@ -437,15 +448,26 @@ function addViewing(conv: ConversationSnapshot, propertyId: string, times: reado
   return { ...base(conv), replies, quickReplies, next: { ...conv, state: 'booking', booking } };
 }
 
-/** 翌営業日以降の営業日か（時刻は担当者が調整するので見ない） */
-function isValidViewingTime(value: string, firstDay: string, cal: BusinessCalendar): boolean {
+/** 翌営業日から上限の日までの営業日か（時刻は担当者が調整するので見ない） */
+function isValidViewingTime(value: string, firstDay: string, lastDay: string, cal: BusinessCalendar): boolean {
   const date = value.slice(0, 10);
-  return /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/.test(value) && date >= firstDay && isBusinessDay(date, cal);
+  return /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/.test(value) && date >= firstDay && date <= lastDay && isBusinessDay(date, cal);
+}
+
+/** この物件の仮受付を新しく受け付けられないなら、その理由の文。受け付けられるなら null */
+function viewingBlocked(property: Property, ctx: TurnContext): string | null {
+  const open = ctx.openViewings ?? [];
+  if (open.includes(property.id)) return msg.viewingAlreadyRequested(property.name);
+  if (open.length >= MAX_OPEN_VIEWINGS_PER_CONVERSATION) return msg.viewingLimitReached();
+  return null;
 }
 
 function finalizeViewing(conv: ConversationSnapshot, booking: BookingDraft, ctx: TurnContext): TurnDecision {
   const property = ctx.properties.find((p) => p.id === booking.propertyId);
   if (!property) return { ...base(conv), replies: [{ type: 'text', text: msg.propertyUnavailable() }] };
+  // 聞き取りの途中で別の経路から受け付けた、などで上限に当たったら、下書きを捨てて伝える
+  const blocked = viewingBlocked(property, ctx);
+  if (blocked) return { ...base(conv), replies: [{ type: 'text', text: blocked }], next: { ...conv, state: 'qa', booking: null } };
   const outside = !isOpenAt(ctx.now, ctx.calendar);
   return {
     ...base(conv),

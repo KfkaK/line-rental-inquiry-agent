@@ -92,6 +92,13 @@ export const VIEWING_CANDIDATES_MIN = 2;
 export const VIEWING_CANDIDATES_MAX = 3;
 /** 内見候補日として提示する営業日の数（翌営業日から） */
 export const VIEWING_DAYS_TO_OFFER = 5;
+/** 内見の候補日として受け付ける先の上限（今日から何日先まで。「2099年1月5日」を仮受付にしない。セキュリティ点検 A12） */
+export const VIEWING_MAX_DAYS_AHEAD = 60;
+/**
+ * 1つの会話で同時に持てる未対応（pending・in_progress）の仮受付の数。同じ物件の未対応があれば新しく作らない。
+ * ボタンだけで仮受付と担当者メールをいくらでも作れないようにする（セキュリティ点検 A4）
+ */
+export const MAX_OPEN_VIEWINGS_PER_CONVERSATION = 3;
 
 // ---------- 有人対応への切替（DESIGN.md 3.4） ----------
 
@@ -125,6 +132,15 @@ export const AREA_MATCH_TOLERANCE_SQM = 0.051;
 
 /** 1ユーザーあたりの発話数の上限（1分間） */
 export const RATE_LIMIT_PER_MINUTE = 5;
+/**
+ * 1ユーザーあたりの、LLM を通すターンの1日（JST）の上限。1日の費用上限は全員で1つなので、1人で全員の枠を使い切れないようにする。
+ * 長さの上限と合わせて、1人の1日の費用は 1 ターン最大 $0.008 程度 × 50 ≒ $0.4 に収まる（セキュリティ点検 A5）
+ */
+export const DAILY_TURNS_PER_USER = 50;
+/** ボタン・友だち追加を含む、1ユーザーあたりの操作の上限（1分間）。LLM を呼ばない操作の連打で DB と送信を埋めないため */
+export const EVENT_RATE_LIMIT_PER_MINUTE = 20;
+/** 発話の字数の上限。超えたら LLM を呼ばずに短くしてもらう。保存もこの字数で切る（LINE のテキストは 5,000 字まで） */
+export const UTTERANCE_MAX_CHARS = 500;
 
 // ---------- 個人情報（DESIGN.md 8章） ----------
 

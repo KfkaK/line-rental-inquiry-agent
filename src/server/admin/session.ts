@@ -16,6 +16,7 @@ import { cache } from 'react';
 import { createSupabaseRepositories, type Repositories } from '@/lib/db';
 import { requireEnv } from '@/lib/env';
 import { createLineMessenger } from '@/lib/line/messenger';
+import { adminCookieOptions } from './cookieOptions';
 import { getPreviewDeps, isAdminPreview } from './preview';
 import type { StaffDeps } from './service';
 
@@ -38,6 +39,8 @@ function isAdminRole(value: unknown): value is AdminRole {
 export async function createSessionClient(): Promise<SupabaseClient> {
   const cookieStore = await cookies();
   return createServerClient(requireEnv('SUPABASE_URL'), requireEnv('SUPABASE_PUBLISHABLE_KEY'), {
+    // proxy.ts と同じ属性にする（食い違うとログアウトで消えない cookie が残る）
+    cookieOptions: adminCookieOptions(),
     cookies: {
       getAll() {
         return cookieStore.getAll();

@@ -233,33 +233,58 @@ const AUTH_LIST_PER_PAGE = 1000;
  * 閲覧用アカウントのパスワードを環境変数の値に戻す。公開デモでは資格情報を README とログイン画面に載せるので、
  * ログインした誰かがパスワードを変えて、ほかの人を締め出せてしまう。毎朝の Cron がこの関数で上書きして塞ぐ。
  *
+ * アカウントの探し方（セキュリティ点検 A14）:
+ *   1. 環境変数のメールアドレス（大文字小文字は区別しない）のアカウントがあれば、それのパスワードだけを戻す
+ *   2. 無ければ、ログインした人がメールアドレスを書き換えたとみなし、`app_metadata.role` が `viewer` のアカウントが
+ *      **ちょうど1つ**ならそれを閲覧用とし、メールアドレスとパスワードの両方を環境変数の値に戻す（書き換えられても毎朝直る）
+ *
  * 安全のため、次のときは**何も変えずに**投げる:
  *   - パスワードが 8 文字未満
- *   - メールアドレス（大文字小文字は区別しない）のアカウントが無い
- *   - 見つかったアカウントの `app_metadata.role` が `viewer` ではない（担当者 staff のパスワードを公開の値に戻す事故を防ぐ）
+ *   - メールアドレスで見つかったアカウントの `app_metadata.role` が `viewer` ではない（担当者 staff のパスワードを公開の値に戻す事故を防ぐ）
+ *   - メールアドレスのアカウントが無く、`viewer` のアカウントが 0 件、または 2 件以上（どれが閲覧用か決められない）
  * 投げる文・戻り値にパスワードとメールアドレスは含めない（Cron のログと応答に出るため）
  */
 export async function resetDemoViewerPassword(client: SupabaseClient, credentials: DemoViewerCredentials): Promise<{ restored: true }> {
   if (credentials.password.length < DEMO_VIEWER_MIN_PASSWORD_LENGTH) {
     throw new Error(`DEMO_VIEWER_PASSWORD が ${DEMO_VIEWER_MIN_PASSWORD_LENGTH} 文字未満なので、閲覧用アカウントのパスワードは変えていません`);
   }
-  const wanted = credentials.email.trim().toLowerCase();
-  const user = (await listAllAuthUsers(client)).find((u) => u.email?.trim().toLowerCase() === wanted);
-  if (!user) {
+  const email = credentials.email.trim();
+  const wanted = email.toLowerCase();
+  const users = await listAllAuthUsers(client);
+  const byEmail = users.find((u) => u.email?.trim().toLowerCase() === wanted);
+
+  if (byEmail) {
+    const role: unknown = byEmail.app_metadata?.role;
+    if (role !== VIEWER_ROLE) {
+      throw new Error(
+        `環境変数 DEMO_VIEWER_EMAIL のアカウントの役割が ${VIEWER_ROLE} ではない（${typeof role === 'string' ? role : '役割なし'}）ので、パスワードは変えていません。` +
+          '担当者のアカウントを閲覧用に使わないでください',
+      );
+    }
+    const { error } = await client.auth.admin.updateUserById(byEmail.id, { password: credentials.password });
+    // 利用者側の更新と同じく、同じパスワードへの更新を弾く設定でも「もう戻っている」ので成功として扱う
+    if (error && error.code !== 'same_password') throw new Error(`閲覧用アカウントのパスワードを戻せません: ${error.message}`);
+    return { restored: true };
+  }
+
+  // メールアドレスで見つからない: 閲覧用アカウントのメールアドレスが書き換えられた可能性。役割で探す
+  const viewers = users.filter((u) => u.app_metadata?.role === VIEWER_ROLE);
+  if (viewers.length === 0) {
     throw new Error(
-      '環境変数 DEMO_VIEWER_EMAIL のメールアドレスのアカウントが Supabase にありません。npm run admin:user -- --email=<そのメールアドレス> --role=viewer で作ってください',
+      `環境変数 DEMO_VIEWER_EMAIL のメールアドレスのアカウントも、役割が ${VIEWER_ROLE} のアカウントも Supabase にありません。` +
+        'npm run admin:user -- --email=<そのメールアドレス> --role=viewer で作ってください',
     );
   }
-  const role: unknown = user.app_metadata?.role;
-  if (role !== VIEWER_ROLE) {
+  if (viewers.length > 1) {
     throw new Error(
-      `環境変数 DEMO_VIEWER_EMAIL のアカウントの役割が ${VIEWER_ROLE} ではない（${typeof role === 'string' ? role : '役割なし'}）ので、パスワードは変えていません。` +
-        '担当者のアカウントを閲覧用に使わないでください',
+      `環境変数 DEMO_VIEWER_EMAIL のメールアドレスのアカウントが無く、役割が ${VIEWER_ROLE} のアカウントが ${viewers.length} 件あってどれが閲覧用か決められないので、何も変えていません。` +
+        'アカウントのメールアドレスを環境変数の値に直すか、不要な viewer のアカウントを消してください',
     );
   }
-  const { error } = await client.auth.admin.updateUserById(user.id, { password: credentials.password });
-  // 利用者側の更新と同じく、同じパスワードへの更新を弾く設定でも「もう戻っている」ので成功として扱う
-  if (error && error.code !== 'same_password') throw new Error(`閲覧用アカウントのパスワードを戻せません: ${error.message}`);
+  // email_confirm: true で、確認メールを待たずにこのメールアドレスに変える（メールの確認が要る設定でも戻る）。
+  // この更新は同じパスワードを弾かれても email が変わっていないので、same_password は成功にしない
+  const { error } = await client.auth.admin.updateUserById(viewers[0].id, { email, password: credentials.password, email_confirm: true });
+  if (error) throw new Error(`閲覧用アカウントのメールアドレスとパスワードを戻せません: ${error.message}`);
   return { restored: true };
 }
 

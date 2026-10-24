@@ -5,7 +5,9 @@ import type { StaffNotifier } from '@/server/handleEvent';
  * 担当者への通知メール（Resend の REST API を fetch で呼ぶ。SDK は入れない）。
  *
  * - 個人情報（LINE ユーザー ID・表示名）は本文に入れない。詳細は管理画面のリンクで見てもらう（不変条件 12）
- * - 担当者対応中の返信の通知にも利用者の発言の本文は載せない（名前・電話番号の返事が入りうる）
+ * - 利用者の発言の本文は、どのメールにも載せない。引き継ぎ（AI が答えずに回した質問）の通知にも、担当者対応中の返信の通知にも載せず、
+ *   質問の内容は管理画面の会話ログで確認してもらう。利用者が書いた偽の行やリンクが、会社の差出人のメールにそのまま載るのを防ぐため
+ *   （セキュリティ点検 A6）。名前・電話番号の返事が入りうる点も同じ
  * - 実装は例外を投げない。HTTP エラー・ネットワークエラー・時間切れは console.error に操作名と status だけ出して握りつぶす
  *   （本文・宛先・API キーはログに出さない）。通知の失敗で利用者への返信や保存を止めない
  */
@@ -13,8 +15,6 @@ import type { StaffNotifier } from '@/server/handleEvent';
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
 /** 1通の送信の待ち時間の上限。Webhook の maxDuration（60 秒）に収める */
 const SEND_TIMEOUT_MS = 10_000;
-/** 引き継ぎメールに載せる質問の最大文字数（超えたら「…」で切る） */
-export const QUESTION_MAX_CHARS = 200;
 /** 話題が決まっていない引き継ぎ（レコードに無い情報・根拠検証の差し替え・回答生成の失敗）の件名 */
 const UNKNOWN_TOPIC_SUBJECT = 'AIが答えられなかった質問';
 
@@ -44,12 +44,6 @@ function oneLine(value: string): string {
   return value.replace(/[\r\n]+/g, ' ').trim();
 }
 
-/** 200 字（サロゲートペアは1字と数える）を超えたら切って「…」を付ける */
-export function truncateQuestion(question: string, max = QUESTION_MAX_CHARS): string {
-  const chars = Array.from(question);
-  return chars.length > max ? `${chars.slice(0, max).join('')}…` : question;
-}
-
 function receptionLine(outsideHours: boolean): string {
   return `受付: ${outsideHours ? '営業時間外' : '営業時間内'}`;
 }
@@ -72,9 +66,10 @@ export function buildViewingEmail(info: ViewingInfo, baseUrl: string): EmailCont
   return { subject, text };
 }
 
+/** AI が答えずに回した質問の通知。利用者の発話（`info.question`）は載せない（buildPausedReplyEmail と同じ考え方）。内容はリンク先の会話ログで */
 export function buildHandoffEmail(info: HandoffInfo, baseUrl: string): EmailContent {
   const subject = `【引き継ぎ】${info.topic ? TOPIC_LABEL[info.topic] : UNKNOWN_TOPIC_SUBJECT}`;
-  const lines = ['AI が答えずに担当者へ回した質問があります。', '', `質問: ${truncateQuestion(info.question)}`];
+  const lines = ['AI が答えずに担当者へ回した質問があります。', '質問の内容は管理画面の会話ログで確認してください。', ''];
   if (info.propertyNames.length > 0) lines.push(`対象物件: ${info.propertyNames.join('、')}`);
   lines.push(
     receptionLine(info.receivedOutsideHours),

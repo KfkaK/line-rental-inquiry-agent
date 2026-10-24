@@ -5,8 +5,7 @@
  * 運営者の氏名・住所などは書かない。数値は rules.ts と同じ値を import して、食い違わないようにする。
  */
 import { DISCLAIMER } from '@/domain/messages';
-import { MESSAGE_RETENTION_DAYS, RATE_LIMIT_PER_MINUTE } from '@/domain/rules';
-import { QUESTION_MAX_CHARS } from '@/lib/notify/resend';
+import { DAILY_TURNS_PER_USER, MESSAGE_RETENTION_DAYS, RATE_LIMIT_PER_MINUTE, UTTERANCE_MAX_CHARS } from '@/domain/rules';
 
 export interface LegalSection {
   heading: string;
@@ -26,7 +25,7 @@ export interface LegalDocument {
 }
 
 /** 最終更新日（文面を直したら更新する） */
-export const LEGAL_UPDATED = '2026年10月11日';
+export const LEGAL_UPDATED = '2026年10月25日';
 
 /** サービスの呼び名 */
 export const SERVICE_NAME = 'お部屋探しAI（デモ）';
@@ -75,7 +74,7 @@ export const PRIVACY: LegalDocument = {
         'Anthropic の Claude API: AI が返信を作るために、メッセージの本文と物件の情報を送ります',
         'Supabase（東京リージョン）: 保存した情報のデータベース',
         'Vercel: アプリの実行',
-        `Resend: 内見の仮受付と、担当者へ回した質問を、担当者にメールで知らせます。メールには、物件名・候補日時・質問の文面（${QUESTION_MAX_CHARS} 字まで）・管理画面へのリンクを載せます。LINE の表示名と LINE ユーザー ID は載せません`,
+        'Resend: 内見の仮受付と、担当者へ回した質問があったことを、担当者にメールで知らせます。メールには、物件名・候補日時・管理画面へのリンクを載せます。質問の文面・LINE の表示名・LINE ユーザー ID は載せません',
       ],
     },
     {
@@ -133,6 +132,7 @@ export const TERMS: LegalDocument = {
       heading: '利用の制限',
       items: [
         `短時間に多くのメッセージを送ると、返信しないことがあります（目安: 1 分に ${RATE_LIMIT_PER_MINUTE} 回を超えたとき）`,
+        `1 通のメッセージは ${UTTERANCE_MAX_CHARS} 字までです。AI への質問は、1 人 1 日 ${DAILY_TURNS_PER_USER} 回までです`,
         '1 日の利用上限に達したときや、AI のサービスが混み合っているときも、返信できないことがあります',
       ],
     },

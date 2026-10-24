@@ -630,7 +630,8 @@ export async function runExtraction(params: ExtractParams, variant: ExtractVaria
     const parsed = ToolInputSchema.safeParse(call.input);
     if (parsed.success) {
       const { result, dropped } = toExtractionResult(parsed.data, new Set(shown.map((s) => s.position)));
-      if (dropped.length > 0) logger.error('[extract] 辞書で解決できない値を捨てました', { dropped });
+      // 捨てた値そのもの（駅名・タグ名として利用者の語が写りうる）はログに出さず、理由だけを出す（不変条件 15）。値は戻り値の droppedOps に残る
+      if (dropped.length > 0) logger.error('[extract] 辞書で解決できない値を捨てました', { reasons: dropped.map((d) => d.reason) });
       return {
         result,
         usage,

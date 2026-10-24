@@ -44,6 +44,10 @@ export type VerifyIssue =
   | { kind: 'feature'; feature: string; claimed: 'present' | 'absent' }
   /** レコードに項目の無い設備・周辺環境を、記載なし以外の文脈で書いた */
   | { kind: 'unknownFacility'; word: string }
+  /** レコードに項目の無い事柄（連絡先・契約の条件・家賃の交渉・物件の事情）を、記載なし以外の文脈で書いた */
+  | { kind: 'unrecorded'; word: string }
+  /** 回答に書いてはいけない形（URL・メールアドレス・連絡先の番号・確定や契約の確約）。文脈によらず落とす */
+  | { kind: 'banned'; word: string }
   | { kind: 'station'; station: string }
   | { kind: 'ward'; ward: string }
   | { kind: 'layout'; layout: string }
@@ -379,11 +383,79 @@ function checkNumbers(segments: readonly Segment[], question: string, targets: r
       }
       if (matches(common, token)) continue;
       if (pools.every((pool) => matches(pool, token) || (comparing && matches(diffs, token)))) continue;
-      // 質問の条件の復唱（「9万円以内です」「2階以上です」）
-      if (token.comparative && asked.some((q) => q.unit === token.unit && q.value === token.value)) continue;
+      // 質問の条件の復唱（「9万円以内です」「2階以上です」）。レコードで本当のときだけ通す（セキュリティ点検 A3）
+      const echoed = token.comparative && asked.some((q) => q.unit === token.unit && q.value === token.value);
+      if (echoed && comparativeHolds(segment.text, token, subjectOf(segment, targets.map((t) => t.property)), year)) continue;
       issues.push({ kind: 'number', token: token.raw });
     }
   }
+}
+
+/** 比較の語 → レコードの値 v が数値 x に対して満たす関係。「より」は向きが読めないので持たない */
+const COMPARATORS: Partial<Record<string, (v: number, x: number) => boolean>> = {
+  以内: (v, x) => v <= x,
+  以下: (v, x) => v <= x,
+  まで: (v, x) => v <= x,
+  未満: (v, x) => v < x,
+  以上: (v, x) => v >= x,
+  超: (v, x) => v > x,
+  を超え: (v, x) => v > x,
+};
+
+/** 比較の主張を打ち消す述語（「9万円以内ではありません」「以内に収まりません」）。同じ節の中だけを見る */
+const NEGATED_CLAIM_RE = /^[^。、！？!?\n]*?(?:ではな|じゃな|ません|ない|なく)/;
+/** 利用者の条件の言い直し（「ご予算は9万円以内ですね」「3階以上のご希望ですが」）。物件についての主張ではない。数値に接した形だけを見る */
+const CONDITION_BEFORE_RE = /(?:ご予算|ご希望|ご条件)(?:は|が|の)?$/;
+const CONDITION_AFTER_RE = /^(?:の|が|を)(?:ご)?(?:希望|条件|予算)|^で(?:お)?探/;
+
+/** 比べるレコードの値（単位ごと）。比べられない単位は null */
+function comparableValues(unit: Unit, p: Property, before: string, year: number): number[] | null {
+  switch (unit) {
+    case 'yen': {
+      // 同じ節に管理費の語があれば管理費、無ければ家賃と月額（家賃＋管理費）のどちらかで成り立てばよい
+      const clause = before.slice(Math.max(before.lastIndexOf('、'), before.lastIndexOf('。'), before.lastIndexOf('\n')) + 1);
+      return /管理費|共益費/.test(clause) ? [p.managementFee] : [p.rent, p.rent + p.managementFee];
+    }
+    case 'minute':
+      return p.access.map((a) => a.walkMin);
+    case 'sqm':
+      return [p.areaSqm];
+    case 'floor':
+      return [p.floor];
+    case 'age':
+    case 'yearSpan':
+      return [year - p.builtYear, year - p.builtYear - 1];
+    case 'months':
+      return [p.depositMonths, p.keyMoneyMonths];
+    default:
+      return null;
+  }
+}
+
+/**
+ * 質問の数値を比較の形で繰り返した主張（「月額は9万円以内に収まります」「5階以上です」）が、区切りの物件のレコードで本当か。
+ * 打ち消した形（「9万円以内ではありません」）なら、主張が偽であること。利用者の条件の言い直し・比べられない単位・「より」は、
+ * これまでどおり復唱として通す
+ */
+function comparativeHolds(
+  text: string,
+  token: NumToken,
+  subject: { properties: readonly Property[]; every: boolean },
+  year: number,
+): boolean {
+  const after = text.slice(token.index + token.raw.length);
+  const word = COMPARATIVE_RE.exec(after)?.[1];
+  const compare = word ? COMPARATORS[word] : undefined;
+  if (!word || !compare) return true;
+  const before = text.slice(0, token.index);
+  if (CONDITION_BEFORE_RE.test(before) || CONDITION_AFTER_RE.test(after.slice(word.length))) return true;
+  const negated = NEGATED_CLAIM_RE.test(after.slice(word.length).replace(NOT_NEGATION_RE, ''));
+  const holds = (p: Property) => {
+    const values = comparableValues(token.unit, p, before, year);
+    if (values === null) return true;
+    return values.some((v) => compare(v, token.value)) !== negated;
+  };
+  return subject.every ? subject.properties.every(holds) : subject.properties.some(holds);
 }
 
 type Allowed = Record<Unit, number[]>;
@@ -457,11 +529,24 @@ type Term =
   /** 有無をレコードで確かめられる語。`invert` は「ユニットバス」（＝バストイレ別でない）のような逆向きの語 */
   | { kind: 'feature'; feature: string; re: RegExp; has: (p: Property) => boolean; invert?: boolean }
   | { kind: 'unknownFacility'; re: RegExp }
+  | { kind: 'unrecorded'; re: RegExp }
+  | { kind: 'banned'; re: RegExp }
   | { kind: 'forbidden'; topic: ForbiddenTopic; re: RegExp };
 
 const tag = (t: Tag) => (p: Property) => p.tags.includes(t);
 
 const TERMS: readonly Term[] = [
+  // 回答に書いてはいけない形（セキュリティ点検 A2・意思決定ログ36）。回答はレコードの項目だけから書くので、どれも根拠が無い。
+  // 利用者が質問で言わせようとしても通さないよう、文脈（記載なし・担当者が確認する）によらず落とす。語の重なりで負けないよう先頭に置く
+  { kind: 'banned', re: /https?:\/\/\S+|www\.\S+|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g },
+  { kind: 'banned', re: /[A-Za-z0-9-]+\.(?:com|net|org|jp|io|co|info|biz|xyz|app|link)(?![A-Za-z0-9])/g },
+  // 漢数字で書いた連絡先の番号（「ゼロ三の一二三四の五六七八」）。算用数字の番号は単位の無い数値として checkNumbers が落とす
+  { kind: 'banned', re: /(?:[〇零一二三四五六七八九]|ゼロ){2,}(?:[のー‐-]?(?:[〇零一二三四五六七八九]|ゼロ){2,}){2,}/g },
+  // 確定・契約の確約（AI は内見を確定しない。不変条件4）。「担当者が確定します」「まだ確定していません」は当たらない形にする
+  {
+    kind: 'banned',
+    re: /(?<!未)確定(?:しました|いたしました|です|となります|済み|になりました|しております)|予約(?:が|は)?(?:完了|取れ(?:ました|ています)|できました)|(?:ご)?契約(?:いただけます|できます|が可能|可能です|いたします)|お約束(?:します|いたします)|保証(?:します|いたします)/g,
+  },
   // 語幹はヒアリングと取込のタグ辞書（normalize.ts の TAG_DEFS）の同義語に合わせる。回答文は normalizeText 済み（二人 → 2人）
   { kind: 'feature', feature: 'ペット可', re: /ペット|犬|猫/g, has: tag('ペット可') },
   {
@@ -515,11 +600,22 @@ const TERMS: readonly Term[] = [
     kind: 'unknownFacility',
     re: /エレベーター|浴室乾燥|追い?焚き|追焚|温水洗浄便座|ウォシュレット|システムキッチン|IH|コンロ|クローゼット|収納|ロフト|バルコニー|ベランダ|駐車場|インターネット|ネット無料|Wi-?Fi|光回線|家具|家電|床暖房|防犯カメラ|モニター付|インターホン|ゴミ置|ゴミ出し|管理人|常駐|都市ガス|プロパン|南東向き|南西向き|北東向き|北西向き|東向き|西向き|北向き|新築|築浅|リノベ|リフォーム|デザイナーズ|分譲|コンビニ|スーパー|ドラッグストア|公園|学校|病院|商店街|繁華街|眺望|眺め/g,
   },
+  // レコードに項目の無い事柄（連絡先・契約の条件・家賃の交渉・物件の事情）。設備と同じく、記載なし・担当者が確認する文脈でだけ書いてよい
+  {
+    kind: 'unrecorded',
+    re: /電話|TEL|FAX|ファックス|メールアドレス|ホームページ|ウェブサイト|公式サイト|LINE ?ID|値引き|値下げ|割引|減額|交渉|フリーレント|事故物件|心理的瑕疵|告知事項|自殺|孤独死|更新料|違約金|解約|契約(?!金)/g,
+  },
   { kind: 'forbidden', topic: 'vacancy', re: /空室|空き状況|空き部屋|空いて|募集中|成約|申し?込み(?:可能|できます)/g },
   { kind: 'forbidden', topic: 'initialCostTotal', re: /初期費用|契約金|総額|仲介手数料|保険料|鍵交換/g },
-  { kind: 'forbidden', topic: 'safety', re: /治安|犯罪|物騒/g },
+  // 「安全」「危険」も治安の言い切りとして扱う（「夜も安全です」。セキュリティ点検 A2）
+  { kind: 'forbidden', topic: 'safety', re: /治安|犯罪|物騒|安全|危険|危な/g },
   { kind: 'forbidden', topic: 'noise', re: /騒音|うるさ|防音|騒がし|騒々し|音(?:が|は|も)(?:気|響|聞こえ)/g },
-  { kind: 'forbidden', topic: 'screening', re: /審査|保証会社|保証人/g },
+  // 入居審査にかかわる属性（国籍・収入・職業など）。プロンプトは screening として禁じている（answer.ts・extract.ts）
+  {
+    kind: 'forbidden',
+    topic: 'screening',
+    re: /審査|保証会社|保証人|国籍|外国人|外国籍|留学生|年収|収入|職業|勤務先|無職|生活保護|高齢者|入居(?:を)?(?:お断り|断ら)/g,
+  },
   { kind: 'forbidden', topic: 'neighbors', re: /近隣|住人|住民|隣人|入居者層/g },
 ];
 
@@ -610,8 +706,10 @@ function judgeTerm(
   subject: { properties: readonly Property[]; every: boolean },
   issues: VerifyIssue[],
 ): void {
-  if (term.kind === 'unknownFacility') {
-    issues.push({ kind: 'unknownFacility', word });
+  if (term.kind === 'banned') {
+    issues.push({ kind: 'banned', word });
+  } else if (term.kind === 'unknownFacility' || term.kind === 'unrecorded') {
+    issues.push({ kind: term.kind, word });
   } else if (term.kind === 'forbidden') {
     issues.push({ kind: 'forbidden', topic: term.topic });
   } else {
@@ -628,6 +726,11 @@ function checkTerms(segments: readonly Segment[], properties: readonly Property[
     for (const sentence of segment.text.split(/(?<=[。！？!?\n])/)) {
       const spans = findTerms(sentence);
       spans.forEach((span, i) => {
+        // 書いてはいけない形は、記載なし・担当者が確認する文脈でも落とす
+        if (span.term.kind === 'banned') {
+          issues.push({ kind: 'banned', word: span.word });
+          return;
+        }
         const polarity = polarityAt(sentence, spans, i);
         if (polarity !== 'neutral') judgeTerm(span.term, span.word, polarity, subject, issues);
       });

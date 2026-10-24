@@ -613,14 +613,97 @@ describe('resetDemoViewerPassword', () => {
     expect(db.authUpdates).toEqual([]);
   });
 
-  it('アカウントが無ければ、何も変えずに投げる。作り方（npm run admin:user）を案内する', async () => {
+  it('メールアドレスのアカウントも viewer のアカウントも無ければ、何も変えずに投げる。作り方（npm run admin:user）を案内する', async () => {
     const db = setupViewerDb();
-    db.authUsers = db.authUsers.filter((u) => u.id !== VIEWER_ID);
+    db.authUsers = db.authUsers.filter((u) => u.app_metadata?.role !== 'viewer');
     const message = await rejection(db);
     expect(message).toContain('npm run admin:user');
     expect(message).toContain('--role=viewer');
     expect(db.authUpdates).toEqual([]);
     expectNoSecrets(message);
+  });
+
+  describe('ログインした人がメールアドレスを書き換えたとき（メールアドレスで見つからない）', () => {
+    /** 閲覧用アカウントのメールアドレスが書き換えられ、ほかの viewer はいない Auth */
+    function setupRenamedViewerDb(): FakeDb {
+      const db = setupViewerDb();
+      db.authUsers = [
+        { id: STAFF_ID, email: 'staff@example.com', app_metadata: { role: 'staff' } },
+        { id: VIEWER_ID, email: 'changed-by-visitor@example.net', app_metadata: { role: 'viewer' } },
+      ];
+      return db;
+    }
+
+    it('viewer がちょうど1つなら、それのメールアドレスとパスワードの両方を環境変数の値に戻す（確認メールを待たない）', async () => {
+      const db = setupRenamedViewerDb();
+      const result = await resetDemoViewerPassword(db.client, VIEWER);
+      expect(result).toEqual({ restored: true });
+      expect(db.authUpdates).toEqual([
+        { id: VIEWER_ID, attributes: { email: VIEWER.email, password: VIEWER.password, email_confirm: true } },
+      ]);
+      expectNoSecrets(result);
+    });
+
+    it('環境変数のメールアドレスの前後の空白は取って書く。役割は変えない・担当者には触れない', async () => {
+      const db = setupRenamedViewerDb();
+      await resetDemoViewerPassword(db.client, { ...VIEWER, email: `  ${VIEWER.email}\n` });
+      expect(db.authUpdates).toHaveLength(1);
+      expect(db.authUpdates[0].id).toBe(VIEWER_ID);
+      expect(db.authUpdates[0].attributes.email).toBe(VIEWER.email);
+      expect(Object.keys(db.authUpdates[0].attributes).sort()).toEqual(['email', 'email_confirm', 'password']);
+    });
+
+    it('メールアドレスが空のアカウント（電話番号だけなど）でも、viewer が1つなら戻す', async () => {
+      const db = setupRenamedViewerDb();
+      db.authUsers[1] = { id: VIEWER_ID, app_metadata: { role: 'viewer' } };
+      await expect(resetDemoViewerPassword(db.client, VIEWER)).resolves.toEqual({ restored: true });
+      expect(db.authUpdates.map((u) => u.id)).toEqual([VIEWER_ID]);
+    });
+
+    it('viewer が2つ以上なら、どれが閲覧用か決められないので何も変えずに投げる（件数だけ文に出る）', async () => {
+      const db = setupViewerDb();
+      db.authUsers = db.authUsers.map((u) => (u.id === VIEWER_ID ? { ...u, email: 'changed-by-visitor@example.net' } : u));
+      expect(db.authUsers.filter((u) => u.app_metadata?.role === 'viewer')).toHaveLength(2);
+      const message = await rejection(db);
+      expect(message).toContain('2 件');
+      expect(message).toContain('決められない');
+      expect(db.authUpdates).toEqual([]);
+      expectNoSecrets(message);
+      expect(message).not.toContain('changed-by-visitor');
+      expect(message).not.toContain('other.viewer');
+    });
+
+    it('担当者だけで viewer がいなければ、担当者のアカウントは書き換えずに投げる', async () => {
+      const db = setupRenamedViewerDb();
+      db.authUsers = db.authUsers.filter((u) => u.id === STAFF_ID);
+      await rejection(db);
+      expect(db.authUpdates).toEqual([]);
+    });
+
+    it('メールアドレスで見つかった viewer が優先される（ほかの viewer のメールアドレスは書き換えない）', async () => {
+      const db = setupViewerDb(); // 環境変数のメールの viewer と、別の viewer
+      await resetDemoViewerPassword(db.client, VIEWER);
+      expect(db.authUpdates).toEqual([{ id: VIEWER_ID, attributes: { password: VIEWER.password } }]);
+    });
+
+    it('更新に失敗したら投げる。同じパスワードを弾かれても、メールアドレスは戻っていないので成功にしない（文にパスワード・メールアドレスは出ない）', async () => {
+      const db = setupRenamedViewerDb();
+      db.failOn.set('auth:updateUser', { message: 'New password should be different from the old password.', code: 'same_password' });
+      const message = await rejection(db);
+      expect(message).toContain('戻せません');
+      expectNoSecrets(message);
+    });
+
+    it('日次の Cron の viewer 段も、書き換えられたメールアドレスから戻せる', async () => {
+      const db = setupRenamedViewerDb();
+      const result = await runDailyJob(db.client, NOW, { demo: true, viewer: VIEWER });
+      expect(result.ok).toBe(true);
+      expect(result.viewer).toEqual({ status: 'ok', value: { restored: true } });
+      expect(db.authUpdates).toEqual([
+        { id: VIEWER_ID, attributes: { email: VIEWER.email, password: VIEWER.password, email_confirm: true } },
+      ]);
+      expectNoSecrets(result);
+    });
   });
 
   it('パスワードが 8 文字未満なら、アカウントを探さず変えずに投げる。8 文字ちょうどは通る', async () => {

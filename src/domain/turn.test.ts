@@ -351,6 +351,48 @@ describe('内見の仮受付', () => {
     expect(d.viewingRequest).toBeNull();
     expect(texts(d)[0]).toContain('ご案内できません');
   });
+
+  describe('量の上限（セキュリティ点検 A4・A12。意思決定ログ36）', () => {
+    const withOpen = (openViewings: string[]): TurnContext => ({ ...ctx(props, NIGHT), openViewings });
+
+    it('同じ物件の未対応の仮受付があれば、候補日を聞かずに受け付け済みと伝える', () => {
+      const d = decideTurn(presented(), { kind: 'viewing', propertyId: 'S001' }, withOpen(['S001']));
+      expect(texts(d)).toEqual([expect.stringContaining('受け付け済み')]);
+      expect(d.next.booking).toBeNull();
+      expect(d.viewingRequest).toBeNull();
+    });
+
+    it('未対応の仮受付が会話ごとの上限（3件）に達したら、ほかの物件も受け付けない', () => {
+      const d = decideTurn(presented(), { kind: 'viewing', propertyId: 'S001' }, withOpen(['X1', 'X2', 'X3']));
+      expect(texts(d)).toEqual([expect.stringContaining('すでにいくつか受け付けています')]);
+      // 2件までなら受け付ける
+      expect(decideTurn(presented(), { kind: 'viewing', propertyId: 'S001' }, withOpen(['X1', 'X2'])).next.state).toBe('booking');
+    });
+
+    it('聞き取りの途中で上限に当たったら、送るときに下書きを捨てて伝える', () => {
+      const d1 = decideTurn(presented(), { kind: 'viewing', propertyId: 'S001' }, withOpen([]));
+      const d2 = decideTurn(d1.next, { kind: 'viewingDay', date: '2026-10-08' }, withOpen([]));
+      const d3 = decideTurn(d2.next, { kind: 'bookingSubmit' }, withOpen(['S001']));
+      expect(d3.viewingRequest).toBeNull();
+      expect(d3.next).toMatchObject({ state: 'qa', booking: null });
+      expect(texts(d3)[0]).toContain('受け付け済み');
+    });
+
+    it('候補日は今日から60日先までの営業日だけ（先の日付は落として上限の日を伝える）', () => {
+      // NIGHT は 2026-10-06(火)。60日先は 12月5日(土)
+      const d = decideTurn(
+        presented(),
+        {
+          kind: 'text',
+          text: '1番目を12月4日の14時か、2099年1月5日に見たい',
+          extraction: ex({ intent: 'viewingRequest', targetPositions: [1], viewingTimes: ['2026-12-04T14:00', '2099-01-05'] }),
+        },
+        ctx(props, NIGHT),
+      );
+      expect(d.next.booking).toEqual({ propertyId: 'S001', candidateTimes: ['2026-12-04T14:00'] });
+      expect(texts(d)[0]).toContain('（12月5日(土)まで）');
+    });
+  });
 });
 
 describe('内見の下書きは聞き取り中（state = booking）の間だけ持つ', () => {

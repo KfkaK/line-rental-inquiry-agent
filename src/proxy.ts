@@ -7,6 +7,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { optionalEnv } from '@/lib/env';
+import { adminCookieOptions } from '@/server/admin/cookieOptions';
 import { isAdminPreview } from '@/server/admin/previewFlag';
 
 const LOGIN_PATH = '/admin/login';
@@ -21,6 +22,8 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   // 認証の cookie を書くときに付けるキャッシュ禁止のヘッダー（リダイレクトにも同じものを付ける）
   let authHeaders: Record<string, string> = {};
   const supabase = createServerClient(url, key, {
+    // session.ts と同じ属性にする（食い違うとログアウトで消えない cookie が残る）
+    cookieOptions: adminCookieOptions(),
     cookies: {
       getAll() {
         return request.cookies.getAll();

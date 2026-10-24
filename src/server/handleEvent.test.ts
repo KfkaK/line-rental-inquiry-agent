@@ -202,6 +202,89 @@ describe('handleEvent', () => {
     expect(textsOf(t.lastReply())[0]).toContain('混み合っています');
   });
 
+  describe('乱用対策（セキュリティ点検 A4・A5・A8。意思決定ログ36）', () => {
+    const more = () => postbackEvent(buildPostbackData({ action: 'more' }));
+    const imageEvent = () =>
+      ({ ...baseEvent(), type: 'message', message: { type: 'image', id: `M${eventSeq}`, contentProvider: { type: 'line' } } }) as webhook.Event;
+
+    it('500字を超える発話は LLM を呼ばずに短くしてもらい、保存も上限で切る。500字ちょうどは通す', async () => {
+      const t = setup();
+      await handleEvent(textEvent('あ'.repeat(501)), t.deps);
+      expect(t.extractCalls).toHaveLength(0);
+      expect(textsOf(t.lastReply())[0]).toContain('500字以内');
+      const saved = await t.repos.messages.listByConversation((await t.conversation()).id);
+      expect(Array.from(saved[0].text)).toHaveLength(501); // 500 字＋「…」
+
+      await handleEvent(textEvent('い'.repeat(500)), t.deps);
+      expect(t.extractCalls).toHaveLength(1);
+    });
+
+    it('利用者ごとの1日のターン数の上限で止める（1分の制限とは別）。日付が変われば戻る', async () => {
+      const t = setup();
+      for (let i = 0; i < 50; i++) {
+        await handleEvent(textEvent(`質問${i}`), t.deps);
+        t.advance(60_001);
+      }
+      expect(t.extractCalls).toHaveLength(50);
+      await handleEvent(textEvent('51回目'), t.deps);
+      expect(t.extractCalls).toHaveLength(50);
+      expect(textsOf(t.lastReply())[0]).toContain('本日はここまで');
+
+      t.advance(24 * 60 * 60 * 1000);
+      await handleEvent(textEvent('次の日'), t.deps);
+      expect(t.extractCalls).toHaveLength(51);
+    });
+
+    it('ボタンの連打は1分20回で止め、1分たてば戻る', async () => {
+      const t = setup({ extractions: [SEARCH] });
+      await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+      for (let i = 0; i < 19; i++) await handleEvent(more(), t.deps);
+      expect(textsOf(t.lastReply()).join('')).not.toContain('混み合っています');
+      await handleEvent(more(), t.deps);
+      expect(textsOf(t.lastReply())[0]).toContain('混み合っています');
+
+      t.advance(60_001);
+      await handleEvent(more(), t.deps);
+      expect(textsOf(t.lastReply()).join('')).not.toContain('混み合っています');
+    });
+
+    it('画像・スタンプは、担当者が対応中なら返信せず、印を残して担当者へ知らせる（不変条件 8）', async () => {
+      const t = setup();
+      await t.repos.lineUsers.upsert({ lineUserId: USER });
+      const conv = await t.conversation();
+      await t.repos.conversations.update(conv.id, { aiPaused: true, lastStaffReplyAt: NOON.toISOString() });
+      await handleEvent(imageEvent(), t.deps);
+      expect(t.messenger.replies).toHaveLength(0);
+      expect((await t.repos.messages.listByConversation(conv.id)).map((m) => m.text)).toEqual(['[画像・スタンプなど]']);
+      expect(t.notifier.userRepliedWhilePaused).toHaveBeenCalledTimes(1);
+    });
+
+    it('画像・スタンプは、AI が動いている会話なら文字で送ってもらう（LLM は呼ばない）', async () => {
+      const t = setup();
+      await handleEvent(imageEvent(), t.deps);
+      expect(t.extractCalls).toHaveLength(0);
+      expect(textsOf(t.lastReply())[0]).toContain('文字でお送りください');
+    });
+
+    it('同じ物件の未対応の仮受付があれば、新しく受け付けず、担当者へも重ねて知らせない', async () => {
+      const t = setup({ now: NIGHT, extractions: [SEARCH] });
+      await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+      const book = async () => {
+        await handleEvent(postbackEvent(buildPostbackData({ action: 'viewing', propertyId: 'P2' })), t.deps);
+        await handleEvent(postbackEvent(buildPostbackData({ action: 'viewingDay', date: '2026-10-08' })), t.deps);
+        await handleEvent(postbackEvent(buildPostbackData({ action: 'viewingDay', date: '2026-10-09' })), t.deps);
+      };
+      await book();
+      expect(await t.repos.viewingRequests.listByStatus('pending')).toHaveLength(1);
+
+      await handleEvent(postbackEvent(buildPostbackData({ action: 'viewing', propertyId: 'P2' })), t.deps);
+      expect(textsOf(t.lastReply())[0]).toContain('受け付け済み');
+      expect((await t.conversation()).booking).toBeNull();
+      expect(await t.repos.viewingRequests.listByStatus('pending')).toHaveLength(1);
+      expect(t.notifier.viewingRequested).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('reply が失敗したら push に切り替える', async () => {
     const t = setup({ extractions: [SEARCH] });
     t.messenger.failReplyWith = new Error('Invalid reply token');

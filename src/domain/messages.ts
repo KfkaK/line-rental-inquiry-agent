@@ -165,8 +165,18 @@ export function askViewingTimes(propertyName: string, collected: readonly string
   return `いま ${collected.map(formatViewingTime).join('、')} をお預かりしています。ほかの候補があれば教えてください。このままでよければ「この日時で送る」を押してください。`;
 }
 
-export function invalidViewingTimes(firstDay: string): string {
-  return `内見は${formatJstDay(firstDay)}以降の営業日でお選びください。`;
+export function invalidViewingTimes(firstDay: string, lastDay: string): string {
+  return `内見は${formatJstDay(firstDay)}以降の営業日でお選びください（${formatJstDay(lastDay)}まで）。`;
+}
+
+/** 同じ物件の仮受付が担当者の対応待ちのまま（新しくは受け付けない） */
+export function viewingAlreadyRequested(propertyName: string): string {
+  return `「${propertyName}」の内見のご希望は受け付け済みです。担当者からのご連絡をお待ちください。`;
+}
+
+/** 未対応の仮受付が会話ごとの上限に達した */
+export function viewingLimitReached(): string {
+  return '内見のご希望はすでにいくつか受け付けています。担当者からのご連絡の後に、あらためてお知らせください。';
 }
 
 /** '2026-10-10T14:00' → '10月10日(土) 14:00'、'2026-10-10' → '10月10日(土)' */
@@ -219,4 +229,13 @@ export function textOnly(): string {
 
 export function rateLimited(): string {
   return 'ただいま混み合っています。少し時間をおいてからもう一度お送りください。';
+}
+
+/** 利用者ごとの1日の上限（DAILY_TURNS_PER_USER）に達した */
+export function dailyLimitReached(): string {
+  return '本日はたくさんのご質問をありがとうございます。AI の対応は本日はここまでとさせてください。明日あらためてお送りください。';
+}
+
+export function tooLong(maxChars: number): string {
+  return `恐れ入りますが、${maxChars}字以内で短くしてお送りください。`;
 }

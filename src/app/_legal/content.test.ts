@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { DISCLAIMER } from '@/domain/messages';
-import { MESSAGE_RETENTION_DAYS, RATE_LIMIT_PER_MINUTE } from '@/domain/rules';
+import { DAILY_TURNS_PER_USER, MESSAGE_RETENTION_DAYS, RATE_LIMIT_PER_MINUTE, UTTERANCE_MAX_CHARS } from '@/domain/rules';
 import { CONTACT_TEXT, LEGAL_UPDATED, PRIVACY, TERMS, type LegalDocument } from './content';
 import { LegalPage } from './LegalPage';
 
@@ -59,8 +59,10 @@ describe('プライバシーポリシーの内容', () => {
     }
   });
 
-  it('メールに表示名・LINE ユーザー ID を載せないことと、会話ログの保存期間は rules.ts と同じ', () => {
-    expect(text).toContain('LINE の表示名と LINE ユーザー ID は載せません');
+  it('メールに質問の文面・表示名・LINE ユーザー ID を載せないことと、会話ログの保存期間は rules.ts と同じ', () => {
+    // 引き継ぎメールは質問の本文を載せない（セキュリティ点検 A6。src/lib/notify/resend.ts）
+    expect(text).toContain('質問の文面・LINE の表示名・LINE ユーザー ID は載せません');
+    expect(text).not.toContain('字まで）');
     expect(text).toContain(`会話ログ（メッセージ）は ${MESSAGE_RETENTION_DAYS} 日で削除します`);
     expect(text).toContain(`担当者へ回した質問の文面も、同じく ${MESSAGE_RETENTION_DAYS} 日で削除します`);
   });
@@ -84,8 +86,9 @@ describe('利用規約の内容', () => {
     expect(text).toContain('AI は内見を確定しません');
   });
 
-  it('レート制限の目安は rules.ts と同じ値', () => {
+  it('レート制限の目安・字数・1日の回数は rules.ts と同じ値', () => {
     expect(text).toContain(`1 分に ${RATE_LIMIT_PER_MINUTE} 回を超えたとき`);
+    expect(text).toContain(`1 通のメッセージは ${UTTERANCE_MAX_CHARS} 字までです。AI への質問は、1 人 1 日 ${DAILY_TURNS_PER_USER} 回までです`);
   });
 
   it('AI が答えない内容（空室・初期費用の確定額・治安・騒音・審査）を担当者に引き継ぐと書く', () => {

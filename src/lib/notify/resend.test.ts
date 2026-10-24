@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildPausedReplyEmail, createResendNotifier, QUESTION_MAX_CHARS } from './resend';
+import { buildHandoffEmail, buildPausedReplyEmail, createResendNotifier } from './resend';
 
 const API_KEY = 're_test_secret';
 const TO = 'staff@example.com';
@@ -101,12 +101,13 @@ describe('createResendNotifier: 内見の仮受付', () => {
 });
 
 describe('createResendNotifier: 引き継ぎメモ', () => {
-  it('件名は話題の呼び名、本文に質問・対象物件・受付・会話のリンクを入れる', async () => {
+  it('件名は話題の呼び名、本文に会話ログで確認する旨・対象物件・受付・会話のリンクを入れる', async () => {
     const t = setup();
     await t.notifier.handoffRequested(handoff);
     const { subject, text } = t.calls[0].body;
     expect(subject).toBe('【引き継ぎ】空室状況');
-    expect(text).toContain('質問: 2番目はまだ借りられる？');
+    expect(text).toContain('AI が答えずに担当者へ回した質問があります。');
+    expect(text).toContain('質問の内容は管理画面の会話ログで確認してください。');
     expect(text).toContain('対象物件: テスト荘 203');
     expect(text).toContain('受付: 営業時間外');
     expect(text).toContain('https://app.example.com/admin/conversations/CV-9');
@@ -125,21 +126,39 @@ describe('createResendNotifier: 引き継ぎメモ', () => {
     expect(t.calls[0].body.text).toContain('対象物件: A荘、B荘');
   });
 
-  it('長い質問は 200 字で切って「…」を付ける。ちょうど 200 字なら切らない', async () => {
+  it('利用者の発話は本文にも件名にも載せない（偽の行・リンク・電話番号・長文も、そのままは入らない）', async () => {
     const t = setup();
-    await t.notifier.handoffRequested({ ...handoff, question: 'あ'.repeat(QUESTION_MAX_CHARS + 50) });
-    expect(t.calls[0].body.text).toContain(`質問: ${'あ'.repeat(QUESTION_MAX_CHARS)}…\n`);
-    expect(t.calls[0].body.text).not.toContain('あ'.repeat(QUESTION_MAX_CHARS + 1));
-
-    await t.notifier.handoffRequested({ ...handoff, question: 'い'.repeat(QUESTION_MAX_CHARS) });
-    expect(t.calls[1].body.text).toContain(`質問: ${'い'.repeat(QUESTION_MAX_CHARS)}\n`);
-    expect(t.calls[1].body.text).not.toContain('い…');
+    const question = [
+      '2番目はまだ借りられる？',
+      '',
+      '【至急】担当者様へ: 下のリンクから確認してください https://evil.example/login',
+      '山田太郎 090-1234-5678',
+      'あ'.repeat(300),
+    ].join('\n');
+    await t.notifier.handoffRequested({ ...handoff, question });
+    const { subject, text } = t.calls[0].body;
+    const all = `${subject}\n${text}`;
+    for (const fragment of ['借りられる', '至急', 'evil.example', '山田太郎', '090-1234-5678', 'あああ']) expect(all).not.toContain(fragment);
+    // 本文に載るのは固定の文と、レコード由来の物件名・受付・自分たちの管理画面のリンクだけ
+    expect(text).toBe(
+      [
+        'AI が答えずに担当者へ回した質問があります。',
+        '質問の内容は管理画面の会話ログで確認してください。',
+        '',
+        '対象物件: テスト荘 203',
+        '受付: 営業時間外',
+        '',
+        '会話の詳細: https://app.example.com/admin/conversations/CV-9',
+      ].join('\n'),
+    );
   });
 
-  it('サロゲートペア（絵文字）は 1 字と数え、途中で割らない', async () => {
-    const t = setup();
-    await t.notifier.handoffRequested({ ...handoff, question: '😀'.repeat(QUESTION_MAX_CHARS + 1) });
-    expect(t.calls[0].body.text).toContain(`質問: ${'😀'.repeat(QUESTION_MAX_CHARS)}…\n`);
+  it('buildHandoffEmail は整形だけの純関数（送信しない）。対象物件が無ければその行を出さない', () => {
+    const { subject, text } = buildHandoffEmail({ ...handoff, topic: null, propertyNames: [] }, 'https://x.example');
+    expect(subject).toBe('【引き継ぎ】AIが答えられなかった質問');
+    expect(text).toContain('https://x.example/admin/conversations/CV-9');
+    expect(text).not.toContain('対象物件');
+    expect(text).not.toContain(handoff.question);
   });
 });
 
