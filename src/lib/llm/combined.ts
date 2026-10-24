@@ -25,6 +25,7 @@
  * 会話を並行で回すときは、会話ごとに `createCombinedPipeline` を作る。
  */
 import { applyWalkNoPreference } from '../../domain/normalize';
+import { withAlignedViewingWeekdays } from '../../domain/viewingDates';
 import type { Answerer, AnswerOutput, ExtractInput, Extractor } from '../../server/handleEvent';
 import {
   ANSWER_EXAMPLE_NOW,
@@ -230,7 +231,8 @@ export function createCombinedPipeline(
     if (answer !== undefined) pending = { utterance, toolInput: answer, model: out.model };
     return {
       // 抽出に2回失敗して offTopic に倒れたときだけ、禁止トピックを語で拾う安全網をかける。「駅から遠くてもいい」も語で拾う（2モデル構成と同じ）
-      result: applyWalkNoPreference(withKeywordSafetyNet(out.result, utterance, out.fallback), utterance),
+      // 内見の候補日の曜日の読み違いも直す（2モデル構成と同じ）
+      result: withAlignedViewingWeekdays(applyWalkNoPreference(withKeywordSafetyNet(out.result, utterance, out.fallback), utterance), utterance, now),
       latencyMs: out.latencyMs,
       costUsd: out.costUsd,
       model: out.model,
