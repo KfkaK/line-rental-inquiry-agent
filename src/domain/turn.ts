@@ -129,7 +129,26 @@ function quickAsk(key: ScalarSlotKey): QuickReplyItem[] {
 
 // ---------- 本体 ----------
 
+/**
+ * 内見の下書きは聞き取り中（state = booking）の間だけ持つ。条件の変更・「もっと見る」・別の物件の話に移った会話に
+ * 下書きが残ると、後で番号なしの日時だけを送られたときに前の物件の候補日として拾ってしまうため、入口と出口で捨てる
+ * （入口は、この決まりより前に保存された会話のため）
+ */
 export function decideTurn(conv: ConversationSnapshot, event: TurnEvent, ctx: TurnContext): TurnDecision {
+  const decision = decideTurnInner(dropStaleBooking(conv), event, ctx);
+  return { ...decision, next: dropStaleBooking(decision.next) };
+}
+
+function dropStaleBooking(conv: ConversationSnapshot): ConversationSnapshot {
+  return conv.state === 'booking' || conv.booking === null ? conv : { ...conv, booking: null };
+}
+
+/** 聞き取り中に、聞き取り中の物件だけの話（または物件を指さない話）をしているか。そのときは聞き取りを続ける */
+function keepsBooking(conv: ConversationSnapshot, propertyIds: readonly string[]): boolean {
+  return conv.state === 'booking' && propertyIds.every((id) => id === conv.booking?.propertyId);
+}
+
+function decideTurnInner(conv: ConversationSnapshot, event: TurnEvent, ctx: TurnContext): TurnDecision {
   switch (event.kind) {
     case 'follow':
       // ブロック解除による友だち追加し直しでも、あいさつでエリアと予算を聞き直すので前回の条件は捨てる
@@ -199,7 +218,9 @@ function onTextInner(conv: ConversationSnapshot, text: string, ex: ExtractionRes
       const searched = presentSearch(conv, applySlotOps(conv.slots, ex.ops), ctx);
       return { ...searched, replies: [{ type: 'text', text: handoffText }, ...searched.replies], handoffNote };
     }
-    return { ...base(conv), replies: [{ type: 'text', text: handoffText }], handoffNote };
+    // 聞き取り中に別の物件のことを聞かれたら、聞き取りを抜ける（下書きは decideTurn が捨てる）
+    const next = conv.state === 'booking' && !keepsBooking(conv, handoffNote.propertyIds) ? { ...conv, state: 'qa' as const } : conv;
+    return { ...base(conv), replies: [{ type: 'text', text: handoffText }], next, handoffNote };
   }
   switch (ex.intent) {
     case 'conditions':
@@ -209,10 +230,12 @@ function onTextInner(conv: ConversationSnapshot, text: string, ex: ExtractionRes
     case 'propertyQuestion': {
       const targets = resolveTargets(conv, ex.targetPositions, ctx);
       if (targets.length === 0) return { ...base(conv), replies: [{ type: 'text', text: msg.askWhichProperty() }] };
+      const ids = targets.map((t) => t.property.id);
       return {
         ...base(conv),
         replies: [{ type: 'answer', question: text, targets }],
-        next: { ...conv, state: 'qa' },
+        // 聞き取り中の物件への質問なら聞き取りを続ける（下書きと選んだ候補日を残す）
+        next: { ...conv, state: keepsBooking(conv, ids) ? 'booking' : 'qa' },
       };
     }
     case 'viewingRequest': {
@@ -381,7 +404,7 @@ function showDetail(conv: ConversationSnapshot, propertyId: string, ctx: TurnCon
     ...base(conv),
     replies: [{ type: 'text', text: msg.propertyDetail(property, index >= 0 ? index + 1 : null) }],
     quickReplies: [{ label: 'この物件の内見を希望', action: { kind: 'event', event: { kind: 'viewing', propertyId } } }],
-    next: { ...conv, state: 'qa' },
+    next: { ...conv, state: keepsBooking(conv, [propertyId]) ? 'booking' : 'qa' },
   };
 }
 
