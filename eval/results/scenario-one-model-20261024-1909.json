@@ -1,0 +1,4038 @@
+{
+  "config": {
+    "set": "scenario",
+    "config": "one-model",
+    "dictionary": true,
+    "models": {
+      "extract": "claude-sonnet-5-5",
+      "answer": "claude-sonnet-5-5"
+    },
+    "model": "claude-sonnet-5-5",
+    "modelOverride": false,
+    "prompts": {
+      "extract": "644148e2",
+      "answer": null
+    },
+    "fake": false,
+    "limit": null,
+    "ids": null,
+    "caseCount": 15,
+    "totalCases": 15,
+    "maxCostUsd": 3,
+    "cutoff": null,
+    "usdJpy": 150,
+    "at": "2026-10-24T10:09:17.058Z",
+    "atJst": "2026-10-24 19:09"
+  },
+  "summary": {
+    "scenarios": 15,
+    "reach": {
+      "all": {
+        "correct": 13,
+        "total": 15,
+        "rate": 0.8666666666666667
+      },
+      "inHours": {
+        "correct": 4,
+        "total": 5,
+        "rate": 0.8
+      },
+      "outsideHours": {
+        "correct": 9,
+        "total": 10,
+        "rate": 0.9
+      }
+    },
+    "baselineReach": {
+      "all": {
+        "correct": 9,
+        "total": 15,
+        "rate": 0.6
+      },
+      "inHours": {
+        "correct": 3,
+        "total": 5,
+        "rate": 0.6
+      },
+      "outsideHours": {
+        "correct": 6,
+        "total": 10,
+        "rate": 0.6
+      }
+    },
+    "reachMatch": {
+      "correct": 15,
+      "total": 15,
+      "rate": 1
+    },
+    "steps": {
+      "correct": 72,
+      "total": 72,
+      "rate": 1
+    },
+    "passed": {
+      "correct": 15,
+      "total": 15,
+      "rate": 1
+    },
+    "latency": {
+      "n": 43,
+      "p50Ms": 2006,
+      "p95Ms": 3113
+    },
+    "answerLatency": {
+      "n": 6,
+      "p50Ms": 2255,
+      "p95Ms": 3475
+    },
+    "cost": {
+      "meanUsd": 0.02137026666666667,
+      "maxUsd": 0.040534,
+      "meanJpy": 3.20554,
+      "maxJpy": 6.0801
+    },
+    "andZeroExamples": [
+      {
+        "id": "sc-01",
+        "step": 3,
+        "mustTotal": 7
+      },
+      {
+        "id": "sc-06",
+        "step": 0,
+        "mustTotal": 7
+      }
+    ]
+  },
+  "totalCostUsd": 0.320554,
+  "errors": 0,
+  "cases": [
+    {
+      "id": "sc-01",
+      "title": "デモ動画の流れ（静か → 0件 → オートロックの緩和 → 2階以上は必須 → 内見）",
+      "start": "2026-10-15T21:30:00+09:00",
+      "expectedReach": "viewing",
+      "score": {
+        "id": "sc-01",
+        "title": "デモ動画の流れ（静か → 0件 → オートロックの緩和 → 2階以上は必須 → 内見）",
+        "steps": {
+          "correct": 8,
+          "total": 8,
+          "rate": 1
+        },
+        "failures": [],
+        "aborted": null,
+        "expectedReach": "viewing",
+        "reach": "viewing",
+        "reachOk": true,
+        "startedOutsideHours": true,
+        "passed": true,
+        "textLatenciesMs": [
+          2302,
+          1876,
+          3144
+        ],
+        "answerLatenciesMs": [],
+        "costUsd": 0.023046,
+        "costJpy": 3.4569,
+        "searches": [
+          {
+            "step": 1,
+            "mustTotal": 7,
+            "andTotal": 7
+          },
+          {
+            "step": 2,
+            "mustTotal": 0,
+            "andTotal": 0
+          },
+          {
+            "step": 3,
+            "mustTotal": 7,
+            "andTotal": 0
+          },
+          {
+            "step": 4,
+            "mustTotal": 5,
+            "andTotal": 0
+          },
+          {
+            "step": 5,
+            "mustTotal": 5,
+            "andTotal": 0
+          },
+          {
+            "step": 6,
+            "mustTotal": 5,
+            "andTotal": 0
+          },
+          {
+            "step": 7,
+            "mustTotal": 5,
+            "andTotal": 0
+          }
+        ],
+        "baselineReach": "none"
+      },
+      "aborted": null,
+      "turns": [
+        {
+          "input": {
+            "kind": "follow"
+          },
+          "texts": [
+            "友だち追加ありがとうございます。\nこのアカウントでは AI が一次対応し、担当者が内容を確認します。\nただいま営業時間外ですが、物件探しはお手伝いできます。\n\nご希望のエリア（駅名）とご予算を教えてください。"
+          ],
+          "cardIds": [],
+          "quickReplies": [
+            "渋谷",
+            "新宿",
+            "中目黒",
+            "恵比寿",
+            "池袋",
+            "吉祥寺",
+            "自由が丘",
+            "中野"
+          ],
+          "state": "hearing",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 3,
+          "costUsd": 0,
+          "mustTotal": null,
+          "andTotal": null,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "渋谷か中目黒か代官山で9万まで。バストイレ別は絶対で、静かなところがいいな"
+          },
+          "texts": [
+            "条件に合う物件が7件あります。合っている順に5件お見せします。\n（外せない: 渋谷・中目黒・代官山エリア・予算9万円以内・バストイレ別 / できれば: 静か）\n駅からの徒歩は15分以内を目安に並べています。",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0070",
+            "P0096",
+            "P0001",
+            "P0090",
+            "P0065"
+          ],
+          "quickReplies": [
+            "もっと見る"
+          ],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "set",
+                  "key": "area",
+                  "value": {
+                    "stations": [
+                      "渋谷",
+                      "中目黒",
+                      "代官山"
+                    ],
+                    "wards": []
+                  }
+                },
+                {
+                  "op": "set",
+                  "key": "rentMax",
+                  "value": 90000
+                },
+                {
+                  "op": "addTag",
+                  "tag": "バストイレ別",
+                  "priority": "must"
+                },
+                {
+                  "op": "addTag",
+                  "tag": "静か"
+                }
+              ],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 2293,
+            "costUsd": 0.006126,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 2302,
+          "costUsd": 0.006126,
+          "mustTotal": 7,
+          "andTotal": 7,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "あ、オートロックも絶対ほしい"
+          },
+          "texts": [
+            "いまの条件では合う物件が見つかりませんでした。\n（外せない: 渋谷・中目黒・代官山エリア・予算9万円以内・バストイレ別・オートロック / できれば: 静か）",
+            "オートロックを「できれば」にすると7件増えます。条件を変えますか？"
+          ],
+          "cardIds": [],
+          "quickReplies": [
+            "条件を変える",
+            "このままにする"
+          ],
+          "state": "hearing",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "addTag",
+                  "tag": "オートロック",
+                  "priority": "must"
+                }
+              ],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 1864,
+            "costUsd": 0.00842,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 1876,
+          "costUsd": 0.00842,
+          "mustTotal": 0,
+          "andTotal": 0,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=relax&k=tag&tag=%E3%82%AA%E3%83%BC%E3%83%88%E3%83%AD%E3%83%83%E3%82%AF&accept=1",
+            "label": "条件を変える"
+          },
+          "texts": [
+            "条件に合う物件が7件あります。合っている順に5件お見せします。\n（外せない: 渋谷・中目黒・代官山エリア・予算9万円以内・バストイレ別 / できれば: 静か・オートロック）\n駅からの徒歩は15分以内を目安に並べています。",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0070",
+            "P0096",
+            "P0001",
+            "P0090",
+            "P0065"
+          ],
+          "quickReplies": [
+            "もっと見る"
+          ],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 11,
+          "costUsd": 0,
+          "mustTotal": 7,
+          "andTotal": 0,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "やっぱり2階以上は必須"
+          },
+          "texts": [
+            "条件に合う物件が5件あります。合っている順に5件お見せします。\n（外せない: 渋谷・中目黒・代官山エリア・予算9万円以内・2階以上・バストイレ別 / できれば: 静か・オートロック）\n駅からの徒歩は15分以内を目安に並べています。",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0070",
+            "P0001",
+            "P0090",
+            "P0065",
+            "P0076"
+          ],
+          "quickReplies": [],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "set",
+                  "key": "floorMin",
+                  "value": 2,
+                  "priority": "must"
+                }
+              ],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 3124,
+            "costUsd": 0.0085,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 3144,
+          "costUsd": 0.0085,
+          "mustTotal": 5,
+          "andTotal": 0,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=viewing&id=P0070",
+            "label": "1番目の内見を希望"
+          },
+          "texts": [
+            "「ヴィラふじみ」の内見ですね。ご希望の日時を2〜3つ教えてください（例: 10月16日(金) 14時）。下の候補日から選ぶこともできます。"
+          ],
+          "cardIds": [],
+          "quickReplies": [
+            "10月16日(金)",
+            "10月17日(土)",
+            "10月18日(日)",
+            "10月19日(月)",
+            "10月20日(火)"
+          ],
+          "state": "booking",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 7,
+          "costUsd": 0,
+          "mustTotal": 5,
+          "andTotal": 0,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=viewingDay&d=2026-10-16",
+            "label": "10月16日(金)"
+          },
+          "texts": [
+            "いま 10月16日(金) をお預かりしています。ほかの候補があれば教えてください。このままでよければ「この日時で送る」を押してください。"
+          ],
+          "cardIds": [],
+          "quickReplies": [
+            "10月17日(土)",
+            "10月18日(日)",
+            "10月19日(月)",
+            "10月20日(火)",
+            "この日時で送る"
+          ],
+          "state": "booking",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 5,
+          "costUsd": 0,
+          "mustTotal": 5,
+          "andTotal": 0,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=bookingSubmit",
+            "label": "この日時で送る"
+          },
+          "texts": [
+            "「ヴィラふじみ」の内見のご希望を受け付けました。\n① 10月16日(金)\n\nまだ予約は確定していません。ただいま営業時間外のため、10月16日(金)に担当者から確定のご連絡をします。"
+          ],
+          "cardIds": [],
+          "quickReplies": [],
+          "state": "handed_off",
+          "handoffAdded": [],
+          "viewingCreated": [
+            {
+              "id": "59ba22b1-8e1e-4c74-8534-0d5de1cfa024",
+              "propertyId": "P0070",
+              "candidateTimes": [
+                "2026-10-16"
+              ]
+            }
+          ],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 6,
+          "costUsd": 0,
+          "mustTotal": 5,
+          "andTotal": 0,
+          "error": null
+        }
+      ],
+      "costUsd": 0.023046,
+      "logs": [],
+      "error": null
+    },
+    {
+      "id": "sc-02",
+      "title": "エリアの追加 → 複数物件の比較質問 → 自由文で内見の日時を2つ伝える",
+      "start": "2026-10-17T20:40:00+09:00",
+      "expectedReach": "viewing",
+      "score": {
+        "id": "sc-02",
+        "title": "エリアの追加 → 複数物件の比較質問 → 自由文で内見の日時を2つ伝える",
+        "steps": {
+          "correct": 4,
+          "total": 4,
+          "rate": 1
+        },
+        "failures": [],
+        "aborted": null,
+        "expectedReach": "viewing",
+        "reach": "viewing",
+        "reachOk": true,
+        "startedOutsideHours": true,
+        "passed": true,
+        "textLatenciesMs": [
+          1824,
+          1947,
+          2255,
+          1991
+        ],
+        "answerLatenciesMs": [
+          2255
+        ],
+        "costUsd": 0.031324000000000005,
+        "costJpy": 4.698600000000001,
+        "searches": [
+          {
+            "step": 0,
+            "mustTotal": 7,
+            "andTotal": 7
+          },
+          {
+            "step": 1,
+            "mustTotal": 11,
+            "andTotal": 11
+          },
+          {
+            "step": 2,
+            "mustTotal": 11,
+            "andTotal": 11
+          },
+          {
+            "step": 3,
+            "mustTotal": 11,
+            "andTotal": 11
+          }
+        ],
+        "baselineReach": "viewing"
+      },
+      "aborted": null,
+      "turns": [
+        {
+          "input": {
+            "kind": "text",
+            "text": "渋谷で9万まで探してます"
+          },
+          "texts": [
+            "ただいま営業時間外ですが、物件探しはお手伝いできます。",
+            "条件に合う物件が7件あります。合っている順に5件お見せします。\n（外せない: 渋谷エリア・予算9万円以内）\n駅からの徒歩は15分以内を目安に並べています。",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0169",
+            "P0070",
+            "P0200",
+            "P0072",
+            "P0076"
+          ],
+          "quickReplies": [
+            "もっと見る"
+          ],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "set",
+                  "key": "area",
+                  "value": {
+                    "stations": [
+                      "渋谷"
+                    ],
+                    "wards": []
+                  }
+                },
+                {
+                  "op": "set",
+                  "key": "rentMax",
+                  "value": 90000
+                }
+              ],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 1815,
+            "costUsd": 0.005494,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 1824,
+          "costUsd": 0.005494,
+          "mustTotal": 7,
+          "andTotal": 7,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "あ、中目黒も見たいな"
+          },
+          "texts": [
+            "条件に合う物件が11件あります。合っている順に5件お見せします。\n（外せない: 渋谷・中目黒エリア・予算9万円以内）\n駅からの徒歩は15分以内を目安に並べています。",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0169",
+            "P0070",
+            "P0096",
+            "P0001",
+            "P0200"
+          ],
+          "quickReplies": [
+            "もっと見る"
+          ],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "set",
+                  "key": "area",
+                  "value": {
+                    "stations": [
+                      "渋谷",
+                      "中目黒"
+                    ],
+                    "wards": []
+                  }
+                }
+              ],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 1938,
+            "costUsd": 0.008376,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 1947,
+          "costUsd": 0.008376,
+          "mustTotal": 11,
+          "andTotal": 11,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "1番目と2番目、どっちが駅から近い？"
+          },
+          "texts": [
+            "1番目の渋谷アパートメントは渋谷駅まで徒歩8分、2番目のヴィラふじみは渋谷駅まで徒歩11分です。1番目のほうが3分近いです。"
+          ],
+          "cardIds": [],
+          "quickReplies": [],
+          "state": "qa",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "propertyQuestion",
+              "ops": [],
+              "targetPositions": [
+                1,
+                2
+              ],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 2249,
+            "costUsd": 0.009114,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [
+            {
+              "text": "1番目の渋谷アパートメントは渋谷駅まで徒歩8分、2番目のヴィラふじみは渋谷駅まで徒歩11分です。1番目のほうが3分近いです。",
+              "handoff": null,
+              "verification": "ok",
+              "latencyMs": 0,
+              "costUsd": 0,
+              "toolCalls": {
+                "status": "answered",
+                "model": "claude-sonnet-5-5",
+                "rawAnswer": "1番目の渋谷アパートメントは渋谷駅まで徒歩8分、2番目のヴィラふじみは渋谷駅まで徒歩11分です。1番目のほうが3分近いです。",
+                "needsStaff": false,
+                "forbiddenTopic": null,
+                "issues": [],
+                "combined": true
+              }
+            }
+          ],
+          "latencyMs": 2255,
+          "costUsd": 0.009114,
+          "mustTotal": 11,
+          "andTotal": 11,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "2番目の内見をお願いします。日曜の14時と月曜の11時で"
+          },
+          "texts": [
+            "「ヴィラふじみ」の内見のご希望を受け付けました。\n① 10月18日(日) 14:00\n② 10月19日(月) 11:00\n\nまだ予約は確定していません。ただいま営業時間外のため、10月18日(日)に担当者から確定のご連絡をします。"
+          ],
+          "cardIds": [],
+          "quickReplies": [],
+          "state": "handed_off",
+          "handoffAdded": [],
+          "viewingCreated": [
+            {
+              "id": "2e528f04-40f6-4621-bc98-f3e71048226c",
+              "propertyId": "P0070",
+              "candidateTimes": [
+                "2026-10-18T14:00",
+                "2026-10-19T11:00"
+              ]
+            }
+          ],
+          "extraction": {
+            "result": {
+              "intent": "viewingRequest",
+              "ops": [],
+              "targetPositions": [
+                2
+              ],
+              "viewingTimes": [
+                "2026-10-18T14:00",
+                "2026-10-19T11:00"
+              ],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 1982,
+            "costUsd": 0.00834,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 1991,
+          "costUsd": 0.00834,
+          "mustTotal": 11,
+          "andTotal": 11,
+          "error": null
+        }
+      ],
+      "costUsd": 0.031324000000000005,
+      "logs": [],
+      "error": null
+    },
+    {
+      "id": "sc-03",
+      "title": "1件だけ → 予算を広げる提案を受け入れる → 詳細 → 候補日を2つ選んで内見",
+      "start": "2026-10-16T22:10:00+09:00",
+      "expectedReach": "viewing",
+      "score": {
+        "id": "sc-03",
+        "title": "1件だけ → 予算を広げる提案を受け入れる → 詳細 → 候補日を2つ選んで内見",
+        "steps": {
+          "correct": 6,
+          "total": 6,
+          "rate": 1
+        },
+        "failures": [],
+        "aborted": null,
+        "expectedReach": "viewing",
+        "reach": "viewing",
+        "reachOk": true,
+        "startedOutsideHours": true,
+        "passed": true,
+        "textLatenciesMs": [
+          1736
+        ],
+        "answerLatenciesMs": [],
+        "costUsd": 0.005474,
+        "costJpy": 0.8210999999999999,
+        "searches": [
+          {
+            "step": 0,
+            "mustTotal": 1,
+            "andTotal": 1
+          },
+          {
+            "step": 1,
+            "mustTotal": 3,
+            "andTotal": 3
+          },
+          {
+            "step": 2,
+            "mustTotal": 3,
+            "andTotal": 3
+          },
+          {
+            "step": 3,
+            "mustTotal": 3,
+            "andTotal": 3
+          },
+          {
+            "step": 4,
+            "mustTotal": 3,
+            "andTotal": 3
+          },
+          {
+            "step": 5,
+            "mustTotal": 3,
+            "andTotal": 3
+          }
+        ],
+        "baselineReach": "viewing"
+      },
+      "aborted": null,
+      "turns": [
+        {
+          "input": {
+            "kind": "text",
+            "text": "新宿で七万まで"
+          },
+          "texts": [
+            "ただいま営業時間外ですが、物件探しはお手伝いできます。",
+            "条件に合う物件が1件あります。合っている順に1件お見せします。\n（外せない: 新宿エリア・予算7万円以内）\n駅からの徒歩は15分以内を目安に並べています。",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。",
+            "予算を7.5万円まで広げると2件増えます。条件を変えますか？"
+          ],
+          "cardIds": [
+            "P0085"
+          ],
+          "quickReplies": [
+            "条件を変える",
+            "このままにする"
+          ],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "set",
+                  "key": "area",
+                  "value": {
+                    "stations": [
+                      "新宿"
+                    ],
+                    "wards": []
+                  }
+                },
+                {
+                  "op": "set",
+                  "key": "rentMax",
+                  "value": 70000
+                }
+              ],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 1727,
+            "costUsd": 0.005474,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 1736,
+          "costUsd": 0.005474,
+          "mustTotal": 1,
+          "andTotal": 1,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=relax&k=slot&key=rentMax&accept=1",
+            "label": "条件を変える"
+          },
+          "texts": [
+            "条件に合う物件が3件あります。合っている順に3件お見せします。\n（外せない: 新宿エリア・予算7.5万円以内）\n駅からの徒歩は15分以内を目安に並べています。",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0085",
+            "P0099",
+            "P0082"
+          ],
+          "quickReplies": [],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 10,
+          "costUsd": 0,
+          "mustTotal": 3,
+          "andTotal": 3,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=detail&id=P0085",
+            "label": "1番目の詳細"
+          },
+          "texts": [
+            "1. プラザさくら\n家賃 65,000円（管理費 5,000円・月額 7万円）\n敷金 0か月 / 礼金 0か月\n1K・18.9㎡・2階・2001年築\n新宿駅 徒歩10分 / 代々木駅 徒歩14分\n所在地: 新宿区さくら坂4-10\n入居: 即入居可\n設備・特徴: オートロック、室内洗濯機置場、フローリング、南向き、日当たり良好、敷金なし、礼金なし\n\n空室状況と初期費用の確定額は担当者が確認します。\n回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [],
+          "quickReplies": [
+            "この物件の内見を希望"
+          ],
+          "state": "qa",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 6,
+          "costUsd": 0,
+          "mustTotal": 3,
+          "andTotal": 3,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=viewing&id=P0085",
+            "label": "この物件の内見を希望"
+          },
+          "texts": [
+            "「プラザさくら」の内見ですね。ご希望の日時を2〜3つ教えてください（例: 10月17日(土) 14時）。下の候補日から選ぶこともできます。"
+          ],
+          "cardIds": [],
+          "quickReplies": [
+            "10月17日(土)",
+            "10月18日(日)",
+            "10月19日(月)",
+            "10月20日(火)",
+            "10月22日(木)"
+          ],
+          "state": "booking",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 5,
+          "costUsd": 0,
+          "mustTotal": 3,
+          "andTotal": 3,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=viewingDay&d=2026-10-17",
+            "label": "10月17日(土)"
+          },
+          "texts": [
+            "いま 10月17日(土) をお預かりしています。ほかの候補があれば教えてください。このままでよければ「この日時で送る」を押してください。"
+          ],
+          "cardIds": [],
+          "quickReplies": [
+            "10月18日(日)",
+            "10月19日(月)",
+            "10月20日(火)",
+            "10月22日(木)",
+            "この日時で送る"
+          ],
+          "state": "booking",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 6,
+          "costUsd": 0,
+          "mustTotal": 3,
+          "andTotal": 3,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=viewingDay&d=2026-10-18",
+            "label": "10月18日(日)"
+          },
+          "texts": [
+            "「プラザさくら」の内見のご希望を受け付けました。\n① 10月17日(土)\n② 10月18日(日)\n\nまだ予約は確定していません。ただいま営業時間外のため、10月17日(土)に担当者から確定のご連絡をします。"
+          ],
+          "cardIds": [],
+          "quickReplies": [],
+          "state": "handed_off",
+          "handoffAdded": [],
+          "viewingCreated": [
+            {
+              "id": "5189427b-cc77-4852-bd78-79dd11bff259",
+              "propertyId": "P0085",
+              "candidateTimes": [
+                "2026-10-17",
+                "2026-10-18"
+              ]
+            }
+          ],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 5,
+          "costUsd": 0,
+          "mustTotal": 3,
+          "andTotal": 3,
+          "error": null
+        }
+      ],
+      "costUsd": 0.005474,
+      "logs": [],
+      "error": null
+    },
+    {
+      "id": "sc-04",
+      "title": "27件 → 外せない条件を聞かれてボタンで選ぶ → もっと見る（ボタンと自由文）→ 詳細 → 内見",
+      "start": "2026-10-18T21:10:00+09:00",
+      "expectedReach": "viewing",
+      "score": {
+        "id": "sc-04",
+        "title": "27件 → 外せない条件を聞かれてボタンで選ぶ → もっと見る（ボタンと自由文）→ 詳細 → 内見",
+        "steps": {
+          "correct": 8,
+          "total": 8,
+          "rate": 1
+        },
+        "failures": [],
+        "aborted": null,
+        "expectedReach": "viewing",
+        "reach": "viewing",
+        "reachOk": true,
+        "startedOutsideHours": true,
+        "passed": true,
+        "textLatenciesMs": [
+          2163,
+          1849
+        ],
+        "answerLatenciesMs": [],
+        "costUsd": 0.017598000000000003,
+        "costJpy": 2.6397000000000004,
+        "searches": [
+          {
+            "step": 0,
+            "mustTotal": 27,
+            "andTotal": 5
+          },
+          {
+            "step": 1,
+            "mustTotal": 13,
+            "andTotal": 5
+          },
+          {
+            "step": 2,
+            "mustTotal": 13,
+            "andTotal": 5
+          },
+          {
+            "step": 3,
+            "mustTotal": 13,
+            "andTotal": 5
+          },
+          {
+            "step": 4,
+            "mustTotal": 13,
+            "andTotal": 5
+          },
+          {
+            "step": 5,
+            "mustTotal": 13,
+            "andTotal": 5
+          },
+          {
+            "step": 6,
+            "mustTotal": 13,
+            "andTotal": 5
+          },
+          {
+            "step": 7,
+            "mustTotal": 13,
+            "andTotal": 5
+          }
+        ],
+        "baselineReach": "viewing"
+      },
+      "aborted": null,
+      "turns": [
+        {
+          "input": {
+            "kind": "text",
+            "text": "新宿か池袋か渋谷で12万まで。オートロックと2階以上がほしくて、できれば南向きがいいな"
+          },
+          "texts": [
+            "ただいま営業時間外ですが、物件探しはお手伝いできます。",
+            "条件に合う物件が27件あります。合っている順に5件お見せします。\n（外せない: 新宿・池袋・渋谷エリア・予算12万円以内 / できれば: 2階以上・オートロック・南向き）\n駅からの徒歩は15分以内を目安に並べています。",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。",
+            "候補が27件あります。この中で外せない条件はどれですか？"
+          ],
+          "cardIds": [
+            "P0085",
+            "P0200",
+            "P0053",
+            "P0185",
+            "P0086"
+          ],
+          "quickReplies": [
+            "2階以上",
+            "オートロック",
+            "南向き",
+            "もっと見る"
+          ],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "set",
+                  "key": "area",
+                  "value": {
+                    "stations": [
+                      "新宿",
+                      "池袋",
+                      "渋谷"
+                    ],
+                    "wards": []
+                  }
+                },
+                {
+                  "op": "set",
+                  "key": "rentMax",
+                  "value": 120000
+                },
+                {
+                  "op": "addTag",
+                  "tag": "オートロック"
+                },
+                {
+                  "op": "set",
+                  "key": "floorMin",
+                  "value": 2
+                },
+                {
+                  "op": "addTag",
+                  "tag": "南向き",
+                  "priority": "want"
+                }
+              ],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 2155,
+            "costUsd": 0.006352,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 2163,
+          "costUsd": 0.006352,
+          "mustTotal": 27,
+          "andTotal": 5,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=priority&k=tag&tag=%E3%82%AA%E3%83%BC%E3%83%88%E3%83%AD%E3%83%83%E3%82%AF",
+            "label": "オートロック"
+          },
+          "texts": [
+            "条件に合う物件が13件あります。合っている順に5件お見せします。\n上位5件は前回と同じです。続きは「もっと見る」からご覧ください。\n（外せない: 新宿・池袋・渋谷エリア・予算12万円以内・オートロック / できれば: 2階以上・南向き）\n駅からの徒歩は15分以内を目安に並べています。",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0085",
+            "P0200",
+            "P0053",
+            "P0185",
+            "P0086"
+          ],
+          "quickReplies": [
+            "もっと見る"
+          ],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 6,
+          "costUsd": 0,
+          "mustTotal": 13,
+          "andTotal": 5,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=more",
+            "label": "もっと見る"
+          },
+          "texts": [
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0169",
+            "P0150",
+            "P0072",
+            "P0020",
+            "P0149"
+          ],
+          "quickReplies": [
+            "もっと見る"
+          ],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 6,
+          "costUsd": 0,
+          "mustTotal": 13,
+          "andTotal": 5,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "他のもお願いします"
+          },
+          "texts": [
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0180",
+            "P0038",
+            "P0105"
+          ],
+          "quickReplies": [],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "showMore",
+              "ops": [],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 1842,
+            "costUsd": 0.011246,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 1849,
+          "costUsd": 0.011246,
+          "mustTotal": 13,
+          "andTotal": 5,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=detail&id=P0105",
+            "label": "13番目の詳細"
+          },
+          "texts": [
+            "13. ヴィラかえで\n家賃 65,000円（管理費 6,000円・月額 7.1万円）\n敷金 1か月 / 礼金 0か月\n1R・18.2㎡・1階・2013年築\n池袋駅 徒歩12分\n所在地: 豊島区かえで町2-13\n入居: 即入居可\n設備・特徴: オートロック、宅配ボックス、エアコン、フローリング、2人入居可、楽器相談可、礼金なし\n\n空室状況と初期費用の確定額は担当者が確認します。\n回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [],
+          "quickReplies": [
+            "この物件の内見を希望"
+          ],
+          "state": "qa",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 5,
+          "costUsd": 0,
+          "mustTotal": 13,
+          "andTotal": 5,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=viewing&id=P0105",
+            "label": "この物件の内見を希望"
+          },
+          "texts": [
+            "「ヴィラかえで」の内見ですね。ご希望の日時を2〜3つ教えてください（例: 10月19日(月) 14時）。下の候補日から選ぶこともできます。"
+          ],
+          "cardIds": [],
+          "quickReplies": [
+            "10月19日(月)",
+            "10月20日(火)",
+            "10月22日(木)",
+            "10月23日(金)",
+            "10月24日(土)"
+          ],
+          "state": "booking",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 6,
+          "costUsd": 0,
+          "mustTotal": 13,
+          "andTotal": 5,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=viewingDay&d=2026-10-19",
+            "label": "10月19日(月)"
+          },
+          "texts": [
+            "いま 10月19日(月) をお預かりしています。ほかの候補があれば教えてください。このままでよければ「この日時で送る」を押してください。"
+          ],
+          "cardIds": [],
+          "quickReplies": [
+            "10月20日(火)",
+            "10月22日(木)",
+            "10月23日(金)",
+            "10月24日(土)",
+            "この日時で送る"
+          ],
+          "state": "booking",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 6,
+          "costUsd": 0,
+          "mustTotal": 13,
+          "andTotal": 5,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=bookingSubmit",
+            "label": "この日時で送る"
+          },
+          "texts": [
+            "「ヴィラかえで」の内見のご希望を受け付けました。\n① 10月19日(月)\n\nまだ予約は確定していません。ただいま営業時間外のため、10月19日(月)に担当者から確定のご連絡をします。"
+          ],
+          "cardIds": [],
+          "quickReplies": [],
+          "state": "handed_off",
+          "handoffAdded": [],
+          "viewingCreated": [
+            {
+              "id": "ddedd60a-a432-4bfd-862c-97961532da31",
+              "propertyId": "P0105",
+              "candidateTimes": [
+                "2026-10-19"
+              ]
+            }
+          ],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 10,
+          "costUsd": 0,
+          "mustTotal": 13,
+          "andTotal": 5,
+          "error": null
+        }
+      ],
+      "costUsd": 0.017598000000000003,
+      "logs": [],
+      "error": null
+    },
+    {
+      "id": "sc-05",
+      "title": "もっと見る → 最初と最後の物件を比べる → 9番目の内見を自由文で",
+      "start": "2026-10-19T15:00:00+09:00",
+      "expectedReach": "viewing",
+      "score": {
+        "id": "sc-05",
+        "title": "もっと見る → 最初と最後の物件を比べる → 9番目の内見を自由文で",
+        "steps": {
+          "correct": 4,
+          "total": 4,
+          "rate": 1
+        },
+        "failures": [],
+        "aborted": null,
+        "expectedReach": "viewing",
+        "reach": "viewing",
+        "reachOk": true,
+        "startedOutsideHours": false,
+        "passed": true,
+        "textLatenciesMs": [
+          1910,
+          2006,
+          2325,
+          1960
+        ],
+        "answerLatenciesMs": [
+          2325
+        ],
+        "costUsd": 0.036418,
+        "costJpy": 5.4627,
+        "searches": [
+          {
+            "step": 0,
+            "mustTotal": 9,
+            "andTotal": 9
+          },
+          {
+            "step": 1,
+            "mustTotal": 9,
+            "andTotal": 9
+          },
+          {
+            "step": 2,
+            "mustTotal": 9,
+            "andTotal": 9
+          },
+          {
+            "step": 3,
+            "mustTotal": 9,
+            "andTotal": 9
+          }
+        ],
+        "baselineReach": "viewing"
+      },
+      "aborted": null,
+      "turns": [
+        {
+          "input": {
+            "kind": "text",
+            "text": "吉祥寺か荻窪か西荻窪で10万まで"
+          },
+          "texts": [
+            "条件に合う物件が9件あります。合っている順に5件お見せします。\n（外せない: 吉祥寺・荻窪・西荻窪エリア・予算10万円以内）\n駅からの徒歩は15分以内を目安に並べています。",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0182",
+            "P0025",
+            "P0163",
+            "P0046",
+            "P0197"
+          ],
+          "quickReplies": [
+            "もっと見る"
+          ],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "set",
+                  "key": "area",
+                  "value": {
+                    "stations": [
+                      "吉祥寺",
+                      "荻窪",
+                      "西荻窪"
+                    ],
+                    "wards": []
+                  }
+                },
+                {
+                  "op": "set",
+                  "key": "rentMax",
+                  "value": 100000
+                }
+              ],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 1903,
+            "costUsd": 0.00567,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 1910,
+          "costUsd": 0.00567,
+          "mustTotal": 9,
+          "andTotal": 9,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "もっと見せて"
+          },
+          "texts": [
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0115",
+            "P0140",
+            "P0154",
+            "P0102"
+          ],
+          "quickReplies": [],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "showMore",
+              "ops": [],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 1999,
+            "costUsd": 0.008108,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 2006,
+          "costUsd": 0.008108,
+          "mustTotal": 9,
+          "andTotal": 9,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "最初のと最後のだと、どっちが築浅ですか？"
+          },
+          "texts": [
+            "1番目のあおばフラットは2007年築（築19年）、9番目のハイツ吉祥寺Ⅱは2006年築（築20年）です。1番目のほうが1年新しいです。"
+          ],
+          "cardIds": [],
+          "quickReplies": [],
+          "state": "qa",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "propertyQuestion",
+              "ops": [],
+              "targetPositions": [
+                1,
+                9
+              ],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 2320,
+            "costUsd": 0.01152,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [
+            {
+              "text": "1番目のあおばフラットは2007年築（築19年）、9番目のハイツ吉祥寺Ⅱは2006年築（築20年）です。1番目のほうが1年新しいです。",
+              "handoff": null,
+              "verification": "ok",
+              "latencyMs": 0,
+              "costUsd": 0,
+              "toolCalls": {
+                "status": "answered",
+                "model": "claude-sonnet-5-5",
+                "rawAnswer": "1番目のあおばフラットは2007年築（築19年）、9番目のハイツ吉祥寺Ⅱは2006年築（築20年）です。1番目のほうが1年新しいです。",
+                "needsStaff": false,
+                "forbiddenTopic": null,
+                "issues": [],
+                "combined": true
+              }
+            }
+          ],
+          "latencyMs": 2325,
+          "costUsd": 0.01152,
+          "mustTotal": 9,
+          "andTotal": 9,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "9番目の内見をお願いします。火曜の11時と木曜の15時で"
+          },
+          "texts": [
+            "「ハイツ吉祥寺Ⅱ」の内見のご希望を受け付けました。\n① 10月20日(火) 11:00\n② 10月22日(木) 15:00\n\nまだ予約は確定していません。担当者から確定のご連絡をします。"
+          ],
+          "cardIds": [],
+          "quickReplies": [],
+          "state": "handed_off",
+          "handoffAdded": [],
+          "viewingCreated": [
+            {
+              "id": "177875d6-3b11-43c1-b7d3-729a2aa3d574",
+              "propertyId": "P0102",
+              "candidateTimes": [
+                "2026-10-20T11:00",
+                "2026-10-22T15:00"
+              ]
+            }
+          ],
+          "extraction": {
+            "result": {
+              "intent": "viewingRequest",
+              "ops": [],
+              "targetPositions": [
+                9
+              ],
+              "viewingTimes": [
+                "2026-10-20T11:00",
+                "2026-10-22T15:00"
+              ],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 1956,
+            "costUsd": 0.01112,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 1960,
+          "costUsd": 0.01112,
+          "mustTotal": 9,
+          "andTotal": 9,
+          "error": null
+        }
+      ],
+      "costUsd": 0.036418,
+      "logs": [],
+      "error": null
+    },
+    {
+      "id": "sc-06",
+      "title": "優先度の変更・条件の削除を重ねて探し直す → 水曜をはさんだ候補日から内見",
+      "start": "2026-10-20T20:15:00+09:00",
+      "expectedReach": "viewing",
+      "score": {
+        "id": "sc-06",
+        "title": "優先度の変更・条件の削除を重ねて探し直す → 水曜をはさんだ候補日から内見",
+        "steps": {
+          "correct": 7,
+          "total": 7,
+          "rate": 1
+        },
+        "failures": [],
+        "aborted": null,
+        "expectedReach": "viewing",
+        "reach": "viewing",
+        "reachOk": true,
+        "startedOutsideHours": true,
+        "passed": true,
+        "textLatenciesMs": [
+          2354,
+          1959,
+          1995,
+          2361,
+          1944
+        ],
+        "answerLatenciesMs": [],
+        "costUsd": 0.040534,
+        "costJpy": 6.0801,
+        "searches": [
+          {
+            "step": 0,
+            "mustTotal": 7,
+            "andTotal": 0
+          },
+          {
+            "step": 1,
+            "mustTotal": 7,
+            "andTotal": 0
+          },
+          {
+            "step": 2,
+            "mustTotal": 7,
+            "andTotal": 1
+          },
+          {
+            "step": 3,
+            "mustTotal": 7,
+            "andTotal": 1
+          },
+          {
+            "step": 4,
+            "mustTotal": 7,
+            "andTotal": 1
+          },
+          {
+            "step": 5,
+            "mustTotal": 7,
+            "andTotal": 1
+          },
+          {
+            "step": 6,
+            "mustTotal": 7,
+            "andTotal": 1
+          }
+        ],
+        "baselineReach": "none"
+      },
+      "aborted": null,
+      "turns": [
+        {
+          "input": {
+            "kind": "text",
+            "text": "中目黒か祐天寺か学芸大学で9万まで。オートロックとペット可がほしくて、駅近だと嬉しい"
+          },
+          "texts": [
+            "ただいま営業時間外ですが、物件探しはお手伝いできます。",
+            "条件に合う物件が7件あります。合っている順に5件お見せします。\n（外せない: 中目黒・祐天寺・学芸大学エリア・予算9万円以内 / できれば: 徒歩10分以内・オートロック・ペット可）",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0147",
+            "P0012",
+            "P0183",
+            "P0096",
+            "P0001"
+          ],
+          "quickReplies": [
+            "もっと見る"
+          ],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "set",
+                  "key": "area",
+                  "value": {
+                    "stations": [
+                      "中目黒",
+                      "祐天寺",
+                      "学芸大学"
+                    ],
+                    "wards": []
+                  }
+                },
+                {
+                  "op": "set",
+                  "key": "rentMax",
+                  "value": 90000
+                },
+                {
+                  "op": "addTag",
+                  "tag": "オートロック"
+                },
+                {
+                  "op": "addTag",
+                  "tag": "ペット可"
+                },
+                {
+                  "op": "set",
+                  "key": "walkMax",
+                  "value": 10,
+                  "priority": "want"
+                }
+              ],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 2350,
+            "costUsd": 0.006446,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 2354,
+          "costUsd": 0.006446,
+          "mustTotal": 7,
+          "andTotal": 0,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "オートロックはなくてもいいかな"
+          },
+          "texts": [
+            "条件に合う物件が7件あります。合っている順に5件お見せします。\n上位5件は前回と同じです。続きは「もっと見る」からご覧ください。\n（外せない: 中目黒・祐天寺・学芸大学エリア・予算9万円以内 / できれば: 徒歩10分以内・ペット可 / あれば: オートロック）",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0147",
+            "P0012",
+            "P0183",
+            "P0096",
+            "P0001"
+          ],
+          "quickReplies": [
+            "もっと見る"
+          ],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "setTagPriority",
+                  "tag": "オートロック",
+                  "priority": "nice"
+                }
+              ],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 1955,
+            "costUsd": 0.008488,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 1959,
+          "costUsd": 0.008488,
+          "mustTotal": 7,
+          "andTotal": 0,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "ペット可はもういらない"
+          },
+          "texts": [
+            "条件に合う物件が7件あります。合っている順に5件お見せします。\n上位5件は前回と同じです。続きは「もっと見る」からご覧ください。\n（外せない: 中目黒・祐天寺・学芸大学エリア・予算9万円以内 / できれば: 徒歩10分以内 / あれば: オートロック）",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0147",
+            "P0012",
+            "P0183",
+            "P0096",
+            "P0001"
+          ],
+          "quickReplies": [
+            "もっと見る"
+          ],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "removeTag",
+                  "tag": "ペット可"
+                }
+              ],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 1993,
+            "costUsd": 0.008392,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 1995,
+          "costUsd": 0.008392,
+          "mustTotal": 7,
+          "andTotal": 1,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "徒歩の条件は外してください"
+          },
+          "texts": [
+            "条件に合う物件が7件あります。合っている順に5件お見せします。\n（外せない: 中目黒・祐天寺・学芸大学エリア・予算9万円以内 / あれば: オートロック）\n駅からの徒歩は15分以内を目安に並べています。",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0147",
+            "P0161",
+            "P0012",
+            "P0183",
+            "P0096"
+          ],
+          "quickReplies": [
+            "もっと見る"
+          ],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "unset",
+                  "key": "walkMax"
+                }
+              ],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 2358,
+            "costUsd": 0.008992,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 2361,
+          "costUsd": 0.008992,
+          "mustTotal": 7,
+          "andTotal": 1,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "1番目を見に行きたいです"
+          },
+          "texts": [
+            "「都立大学ハウス」の内見ですね。ご希望の日時を2〜3つ教えてください（例: 10月22日(木) 14時）。下の候補日から選ぶこともできます。"
+          ],
+          "cardIds": [],
+          "quickReplies": [
+            "10月22日(木)",
+            "10月23日(金)",
+            "10月24日(土)",
+            "10月25日(日)",
+            "10月26日(月)"
+          ],
+          "state": "booking",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "viewingRequest",
+              "ops": [],
+              "targetPositions": [
+                1
+              ],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 1942,
+            "costUsd": 0.008216,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 1944,
+          "costUsd": 0.008216,
+          "mustTotal": 7,
+          "andTotal": 1,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=viewingDay&d=2026-10-22",
+            "label": "10月22日(木)"
+          },
+          "texts": [
+            "いま 10月22日(木) をお預かりしています。ほかの候補があれば教えてください。このままでよければ「この日時で送る」を押してください。"
+          ],
+          "cardIds": [],
+          "quickReplies": [
+            "10月23日(金)",
+            "10月24日(土)",
+            "10月25日(日)",
+            "10月26日(月)",
+            "この日時で送る"
+          ],
+          "state": "booking",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 4,
+          "costUsd": 0,
+          "mustTotal": 7,
+          "andTotal": 1,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=viewingDay&d=2026-10-23",
+            "label": "10月23日(金)"
+          },
+          "texts": [
+            "「都立大学ハウス」の内見のご希望を受け付けました。\n① 10月22日(木)\n② 10月23日(金)\n\nまだ予約は確定していません。ただいま営業時間外のため、10月22日(木)に担当者から確定のご連絡をします。"
+          ],
+          "cardIds": [],
+          "quickReplies": [],
+          "state": "handed_off",
+          "handoffAdded": [],
+          "viewingCreated": [
+            {
+              "id": "e5f34ee5-58f7-42c8-8a4e-aa84c737c593",
+              "propertyId": "P0147",
+              "candidateTimes": [
+                "2026-10-22",
+                "2026-10-23"
+              ]
+            }
+          ],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 5,
+          "costUsd": 0,
+          "mustTotal": 7,
+          "andTotal": 1,
+          "error": null
+        }
+      ],
+      "costUsd": 0.040534,
+      "logs": [],
+      "error": null
+    },
+    {
+      "id": "sc-07",
+      "title": "0件 → 隣の駅を含める提案を受け入れる → 自由文で内見の日時を2つ伝える",
+      "start": "2026-10-16T13:30:00+09:00",
+      "expectedReach": "viewing",
+      "score": {
+        "id": "sc-07",
+        "title": "0件 → 隣の駅を含める提案を受け入れる → 自由文で内見の日時を2つ伝える",
+        "steps": {
+          "correct": 3,
+          "total": 3,
+          "rate": 1
+        },
+        "failures": [],
+        "aborted": null,
+        "expectedReach": "viewing",
+        "reach": "viewing",
+        "reachOk": true,
+        "startedOutsideHours": false,
+        "passed": true,
+        "textLatenciesMs": [
+          1995,
+          2181
+        ],
+        "answerLatenciesMs": [],
+        "costUsd": 0.013375999999999999,
+        "costJpy": 2.0063999999999997,
+        "searches": [
+          {
+            "step": 0,
+            "mustTotal": 0,
+            "andTotal": 0
+          },
+          {
+            "step": 1,
+            "mustTotal": 4,
+            "andTotal": 4
+          },
+          {
+            "step": 2,
+            "mustTotal": 4,
+            "andTotal": 4
+          }
+        ],
+        "baselineReach": "none"
+      },
+      "aborted": null,
+      "turns": [
+        {
+          "input": {
+            "kind": "text",
+            "text": "恵比寿か代官山で8万まで"
+          },
+          "texts": [
+            "いまの条件では合う物件が見つかりませんでした。\n（外せない: 恵比寿・代官山エリア・予算8万円以内）",
+            "隣の駅（目黒・渋谷・中目黒）も含めると4件増えます。条件を変えますか？"
+          ],
+          "cardIds": [],
+          "quickReplies": [
+            "条件を変える",
+            "このままにする"
+          ],
+          "state": "hearing",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "set",
+                  "key": "area",
+                  "value": {
+                    "stations": [
+                      "恵比寿",
+                      "代官山"
+                    ],
+                    "wards": []
+                  }
+                },
+                {
+                  "op": "set",
+                  "key": "rentMax",
+                  "value": 80000
+                }
+              ],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 1986,
+            "costUsd": 0.005558,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 1995,
+          "costUsd": 0.005558,
+          "mustTotal": 0,
+          "andTotal": 0,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=relax&k=slot&key=area&accept=1",
+            "label": "条件を変える"
+          },
+          "texts": [
+            "条件に合う物件が4件あります。合っている順に4件お見せします。\n（外せない: 恵比寿・代官山・目黒・渋谷・中目黒エリア・予算8万円以内）\n駅からの徒歩は15分以内を目安に並べています。",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0169",
+            "P0070",
+            "P0096",
+            "P0161"
+          ],
+          "quickReplies": [],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 8,
+          "costUsd": 0,
+          "mustTotal": 4,
+          "andTotal": 4,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "1番目の部屋、土曜の14時か日曜の11時に見に行けますか"
+          },
+          "texts": [
+            "「渋谷アパートメント」の内見のご希望を受け付けました。\n① 10月17日(土) 14:00\n② 10月18日(日) 11:00\n\nまだ予約は確定していません。担当者から確定のご連絡をします。"
+          ],
+          "cardIds": [],
+          "quickReplies": [],
+          "state": "handed_off",
+          "handoffAdded": [],
+          "viewingCreated": [
+            {
+              "id": "8d0f55de-be02-4691-a414-4639d98d4365",
+              "propertyId": "P0169",
+              "candidateTimes": [
+                "2026-10-17T14:00",
+                "2026-10-18T11:00"
+              ]
+            }
+          ],
+          "extraction": {
+            "result": {
+              "intent": "viewingRequest",
+              "ops": [],
+              "targetPositions": [
+                1
+              ],
+              "viewingTimes": [
+                "2026-10-17T14:00",
+                "2026-10-18T11:00"
+              ],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 2175,
+            "costUsd": 0.007818,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 2181,
+          "costUsd": 0.007818,
+          "mustTotal": 4,
+          "andTotal": 4,
+          "error": null
+        }
+      ],
+      "costUsd": 0.013375999999999999,
+      "logs": [],
+      "error": null
+    },
+    {
+      "id": "sc-08",
+      "title": "定休日（水曜）に始まる → 内見の日時に定休日を言って聞き直される → 1件で送る",
+      "start": "2026-10-21T14:00:00+09:00",
+      "expectedReach": "viewing",
+      "score": {
+        "id": "sc-08",
+        "title": "定休日（水曜）に始まる → 内見の日時に定休日を言って聞き直される → 1件で送る",
+        "steps": {
+          "correct": 3,
+          "total": 3,
+          "rate": 1
+        },
+        "failures": [],
+        "aborted": null,
+        "expectedReach": "viewing",
+        "reach": "viewing",
+        "reachOk": true,
+        "startedOutsideHours": true,
+        "passed": true,
+        "textLatenciesMs": [
+          3113,
+          2297
+        ],
+        "answerLatenciesMs": [],
+        "costUsd": 0.014026,
+        "costJpy": 2.1039,
+        "searches": [
+          {
+            "step": 0,
+            "mustTotal": 4,
+            "andTotal": 4
+          },
+          {
+            "step": 1,
+            "mustTotal": 4,
+            "andTotal": 4
+          },
+          {
+            "step": 2,
+            "mustTotal": 4,
+            "andTotal": 4
+          }
+        ],
+        "baselineReach": "viewing"
+      },
+      "aborted": null,
+      "turns": [
+        {
+          "input": {
+            "kind": "text",
+            "text": "高円寺か阿佐ヶ谷で9万まで"
+          },
+          "texts": [
+            "ただいま営業時間外ですが、物件探しはお手伝いできます。",
+            "条件に合う物件が4件あります。合っている順に4件お見せします。\n（外せない: 高円寺・阿佐ケ谷エリア・予算9万円以内）\n駅からの徒歩は15分以内を目安に並べています。",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0110",
+            "P0017",
+            "P0021",
+            "P0005"
+          ],
+          "quickReplies": [],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "set",
+                  "key": "area",
+                  "value": {
+                    "stations": [
+                      "高円寺",
+                      "阿佐ケ谷"
+                    ],
+                    "wards": []
+                  }
+                },
+                {
+                  "op": "set",
+                  "key": "rentMax",
+                  "value": 90000
+                }
+              ],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 3108,
+            "costUsd": 0.00563,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 3113,
+          "costUsd": 0.00563,
+          "mustTotal": 4,
+          "andTotal": 4,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "2番目を見たいです。来週の水曜の15時か、今度の土曜の11時はどうですか"
+          },
+          "texts": [
+            "内見は10月22日(木)以降の営業日でお選びください。",
+            "いま 10月24日(土) 11:00 をお預かりしています。ほかの候補があれば教えてください。このままでよければ「この日時で送る」を押してください。"
+          ],
+          "cardIds": [],
+          "quickReplies": [
+            "10月22日(木)",
+            "10月23日(金)",
+            "10月25日(日)",
+            "10月26日(月)",
+            "この日時で送る"
+          ],
+          "state": "booking",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "viewingRequest",
+              "ops": [],
+              "targetPositions": [
+                2
+              ],
+              "viewingTimes": [
+                "2026-10-28T15:00",
+                "2026-10-24T11:00"
+              ],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 2291,
+            "costUsd": 0.008396,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 2297,
+          "costUsd": 0.008396,
+          "mustTotal": 4,
+          "andTotal": 4,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=bookingSubmit",
+            "label": "この日時で送る"
+          },
+          "texts": [
+            "「せせらぎコート」の内見のご希望を受け付けました。\n① 10月24日(土) 11:00\n\nまだ予約は確定していません。ただいま営業時間外のため、10月22日(木)に担当者から確定のご連絡をします。"
+          ],
+          "cardIds": [],
+          "quickReplies": [],
+          "state": "handed_off",
+          "handoffAdded": [],
+          "viewingCreated": [
+            {
+              "id": "63fdb2e8-b701-4447-b2fb-afd965ea9468",
+              "propertyId": "P0017",
+              "candidateTimes": [
+                "2026-10-24T11:00"
+              ]
+            }
+          ],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 4,
+          "costUsd": 0,
+          "mustTotal": 4,
+          "andTotal": 4,
+          "error": null
+        }
+      ],
+      "costUsd": 0.014026,
+      "logs": [],
+      "error": null
+    },
+    {
+      "id": "sc-09",
+      "title": "提示物件への質問（レコードで答えられる）を重ねる → 詳細 → 候補日をボタンで選んで内見",
+      "start": "2026-10-17T11:30:00+09:00",
+      "expectedReach": "viewing",
+      "score": {
+        "id": "sc-09",
+        "title": "提示物件への質問（レコードで答えられる）を重ねる → 詳細 → 候補日をボタンで選んで内見",
+        "steps": {
+          "correct": 7,
+          "total": 7,
+          "rate": 1
+        },
+        "failures": [],
+        "aborted": null,
+        "expectedReach": "viewing",
+        "reach": "viewing",
+        "reachOk": true,
+        "startedOutsideHours": false,
+        "passed": true,
+        "textLatenciesMs": [
+          2071,
+          2009,
+          2652
+        ],
+        "answerLatenciesMs": [
+          2009,
+          2652
+        ],
+        "costUsd": 0.023436,
+        "costJpy": 3.5153999999999996,
+        "searches": [
+          {
+            "step": 0,
+            "mustTotal": 9,
+            "andTotal": 6
+          },
+          {
+            "step": 1,
+            "mustTotal": 9,
+            "andTotal": 6
+          },
+          {
+            "step": 2,
+            "mustTotal": 9,
+            "andTotal": 6
+          },
+          {
+            "step": 3,
+            "mustTotal": 9,
+            "andTotal": 6
+          },
+          {
+            "step": 4,
+            "mustTotal": 9,
+            "andTotal": 6
+          },
+          {
+            "step": 5,
+            "mustTotal": 9,
+            "andTotal": 6
+          },
+          {
+            "step": 6,
+            "mustTotal": 9,
+            "andTotal": 6
+          }
+        ],
+        "baselineReach": "viewing"
+      },
+      "aborted": null,
+      "turns": [
+        {
+          "input": {
+            "kind": "text",
+            "text": "池袋で10万まで。バストイレ別がいいです"
+          },
+          "texts": [
+            "条件に合う物件が9件あります。合っている順に5件お見せします。\n（外せない: 池袋エリア・予算10万円以内 / できれば: バストイレ別）\n駅からの徒歩は15分以内を目安に並べています。",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0150",
+            "P0053",
+            "P0020",
+            "P0086",
+            "P0165"
+          ],
+          "quickReplies": [
+            "もっと見る"
+          ],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "set",
+                  "key": "area",
+                  "value": {
+                    "stations": [
+                      "池袋"
+                    ],
+                    "wards": []
+                  }
+                },
+                {
+                  "op": "set",
+                  "key": "rentMax",
+                  "value": 100000
+                },
+                {
+                  "op": "addTag",
+                  "tag": "バストイレ別"
+                }
+              ],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 2065,
+            "costUsd": 0.00573,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 2071,
+          "costUsd": 0.00573,
+          "mustTotal": 9,
+          "andTotal": 6,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "2番目の部屋は何階ですか？"
+          },
+          "texts": [
+            "2番目のあおばレジデンスは9階です。"
+          ],
+          "cardIds": [],
+          "quickReplies": [],
+          "state": "qa",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "propertyQuestion",
+              "ops": [],
+              "targetPositions": [
+                2
+              ],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 2005,
+            "costUsd": 0.008638,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [
+            {
+              "text": "2番目のあおばレジデンスは9階です。",
+              "handoff": null,
+              "verification": "ok",
+              "latencyMs": 0,
+              "costUsd": 0,
+              "toolCalls": {
+                "status": "answered",
+                "model": "claude-sonnet-5-5",
+                "rawAnswer": "2番目のあおばレジデンスは9階です。",
+                "needsStaff": false,
+                "forbiddenTopic": null,
+                "issues": [],
+                "combined": true
+              }
+            }
+          ],
+          "latencyMs": 2009,
+          "costUsd": 0.008638,
+          "mustTotal": 9,
+          "andTotal": 6,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "1番目と3番目だと、どっちが広いですか？"
+          },
+          "texts": [
+            "1番目の池袋アパートメントは26.8㎡、3番目の池袋ハウスは26.9㎡です。3番目のほうが0.1㎡広いです。"
+          ],
+          "cardIds": [],
+          "quickReplies": [],
+          "state": "qa",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "propertyQuestion",
+              "ops": [],
+              "targetPositions": [
+                1,
+                3
+              ],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 2647,
+            "costUsd": 0.009068,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [
+            {
+              "text": "1番目の池袋アパートメントは26.8㎡、3番目の池袋ハウスは26.9㎡です。3番目のほうが0.1㎡広いです。",
+              "handoff": null,
+              "verification": "ok",
+              "latencyMs": 0,
+              "costUsd": 0,
+              "toolCalls": {
+                "status": "answered",
+                "model": "claude-sonnet-5-5",
+                "rawAnswer": "1番目の池袋アパートメントは26.8㎡、3番目の池袋ハウスは26.9㎡です。3番目のほうが0.1㎡広いです。",
+                "needsStaff": false,
+                "forbiddenTopic": null,
+                "issues": [],
+                "combined": true
+              }
+            }
+          ],
+          "latencyMs": 2652,
+          "costUsd": 0.009068,
+          "mustTotal": 9,
+          "andTotal": 6,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=detail&id=P0020",
+            "label": "3番目の詳細"
+          },
+          "texts": [
+            "3. 池袋ハウス\n家賃 85,000円（管理費 4,000円・月額 8.9万円）\n敷金 0か月 / 礼金 2か月\n1DK・26.9㎡・4階・2006年築\n池袋駅 徒歩6分\n所在地: 豊島区ひなた町6-16\n入居: 2026年11月25日から\n設備・特徴: バストイレ別、オートロック、独立洗面台、室内洗濯機置場、エアコン、日当たり良好、敷金なし\n\n空室状況と初期費用の確定額は担当者が確認します。\n回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [],
+          "quickReplies": [
+            "この物件の内見を希望"
+          ],
+          "state": "qa",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 4,
+          "costUsd": 0,
+          "mustTotal": 9,
+          "andTotal": 6,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=viewing&id=P0020",
+            "label": "この物件の内見を希望"
+          },
+          "texts": [
+            "「池袋ハウス」の内見ですね。ご希望の日時を2〜3つ教えてください（例: 10月18日(日) 14時）。下の候補日から選ぶこともできます。"
+          ],
+          "cardIds": [],
+          "quickReplies": [
+            "10月18日(日)",
+            "10月19日(月)",
+            "10月20日(火)",
+            "10月22日(木)",
+            "10月23日(金)"
+          ],
+          "state": "booking",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 4,
+          "costUsd": 0,
+          "mustTotal": 9,
+          "andTotal": 6,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=viewingDay&d=2026-10-18",
+            "label": "10月18日(日)"
+          },
+          "texts": [
+            "いま 10月18日(日) をお預かりしています。ほかの候補があれば教えてください。このままでよければ「この日時で送る」を押してください。"
+          ],
+          "cardIds": [],
+          "quickReplies": [
+            "10月19日(月)",
+            "10月20日(火)",
+            "10月22日(木)",
+            "10月23日(金)",
+            "この日時で送る"
+          ],
+          "state": "booking",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 4,
+          "costUsd": 0,
+          "mustTotal": 9,
+          "andTotal": 6,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=bookingSubmit",
+            "label": "この日時で送る"
+          },
+          "texts": [
+            "「池袋ハウス」の内見のご希望を受け付けました。\n① 10月18日(日)\n\nまだ予約は確定していません。担当者から確定のご連絡をします。"
+          ],
+          "cardIds": [],
+          "quickReplies": [],
+          "state": "handed_off",
+          "handoffAdded": [],
+          "viewingCreated": [
+            {
+              "id": "b2a41948-ac8e-4fc7-a368-f65b077e8f8f",
+              "propertyId": "P0020",
+              "candidateTimes": [
+                "2026-10-18"
+              ]
+            }
+          ],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 4,
+          "costUsd": 0,
+          "mustTotal": 9,
+          "andTotal": 6,
+          "error": null
+        }
+      ],
+      "costUsd": 0.023436,
+      "logs": [],
+      "error": null
+    },
+    {
+      "id": "sc-10",
+      "title": "提示物件への質問（レコードに無い）→ 担当者へ引き継ぎ",
+      "start": "2026-10-16T07:30:00+09:00",
+      "expectedReach": "handoff",
+      "score": {
+        "id": "sc-10",
+        "title": "提示物件への質問（レコードに無い）→ 担当者へ引き継ぎ",
+        "steps": {
+          "correct": 3,
+          "total": 3,
+          "rate": 1
+        },
+        "failures": [],
+        "aborted": null,
+        "expectedReach": "handoff",
+        "reach": "handoff",
+        "reachOk": true,
+        "startedOutsideHours": true,
+        "passed": true,
+        "textLatenciesMs": [
+          1798,
+          1922,
+          3475
+        ],
+        "answerLatenciesMs": [
+          1922,
+          3475
+        ],
+        "costUsd": 0.021448000000000002,
+        "costJpy": 3.2172,
+        "searches": [
+          {
+            "step": 0,
+            "mustTotal": 4,
+            "andTotal": 4
+          },
+          {
+            "step": 1,
+            "mustTotal": 4,
+            "andTotal": 4
+          },
+          {
+            "step": 2,
+            "mustTotal": 4,
+            "andTotal": 4
+          }
+        ],
+        "baselineReach": "handoff"
+      },
+      "aborted": null,
+      "turns": [
+        {
+          "input": {
+            "kind": "text",
+            "text": "目黒か祐天寺で9万まで"
+          },
+          "texts": [
+            "ただいま営業時間外ですが、物件探しはお手伝いできます。",
+            "条件に合う物件が4件あります。合っている順に4件お見せします。\n（外せない: 目黒・祐天寺エリア・予算9万円以内）\n駅からの徒歩は15分以内を目安に並べています。",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0161",
+            "P0183",
+            "P0096",
+            "P0034"
+          ],
+          "quickReplies": [],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "set",
+                  "key": "area",
+                  "value": {
+                    "stations": [
+                      "目黒",
+                      "祐天寺"
+                    ],
+                    "wards": []
+                  }
+                },
+                {
+                  "op": "set",
+                  "key": "rentMax",
+                  "value": 90000
+                }
+              ],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 1791,
+            "costUsd": 0.005558,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 1798,
+          "costUsd": 0.005558,
+          "mustTotal": 4,
+          "andTotal": 4,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "2番目の部屋って何階ですか？"
+          },
+          "texts": [
+            "2番目のヴィラひなたⅡは2階です。"
+          ],
+          "cardIds": [],
+          "quickReplies": [],
+          "state": "qa",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "propertyQuestion",
+              "ops": [],
+              "targetPositions": [
+                2
+              ],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 1916,
+            "costUsd": 0.007958,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [
+            {
+              "text": "2番目のヴィラひなたⅡは2階です。",
+              "handoff": null,
+              "verification": "ok",
+              "latencyMs": 0,
+              "costUsd": 0,
+              "toolCalls": {
+                "status": "answered",
+                "model": "claude-sonnet-5-5",
+                "rawAnswer": "2番目のヴィラひなたⅡは2階です。",
+                "needsStaff": false,
+                "forbiddenTopic": null,
+                "issues": [],
+                "combined": true
+              }
+            }
+          ],
+          "latencyMs": 1922,
+          "costUsd": 0.007958,
+          "mustTotal": 4,
+          "andTotal": 4,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "1番目の近くにコンビニってありますか？"
+          },
+          "texts": [
+            "物件情報にコンビニの記載はありません。\n\nこのご質問は担当者が確認します。ただいま営業時間外のため、10月16日(金)に担当者からご連絡します。\nそのあいだも物件探しはお手伝いできます。"
+          ],
+          "cardIds": [],
+          "quickReplies": [],
+          "state": "qa",
+          "handoffAdded": [
+            {
+              "text": "1番目の近くにコンビニってありますか？",
+              "topic": null,
+              "propertyIds": [
+                "P0161"
+              ],
+              "at": "2026-10-15T22:30:43.759Z"
+            }
+          ],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "propertyQuestion",
+              "ops": [],
+              "targetPositions": [
+                1
+              ],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 3470,
+            "costUsd": 0.007932,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [
+            {
+              "text": "物件情報にコンビニの記載はありません。",
+              "handoff": {
+                "topic": null
+              },
+              "verification": "ok",
+              "latencyMs": 0,
+              "costUsd": 0,
+              "toolCalls": {
+                "status": "needsStaff",
+                "model": "claude-sonnet-5-5",
+                "rawAnswer": "物件情報にコンビニの記載はありません。",
+                "needsStaff": true,
+                "forbiddenTopic": null,
+                "issues": [],
+                "combined": true
+              }
+            }
+          ],
+          "latencyMs": 3475,
+          "costUsd": 0.007932,
+          "mustTotal": 4,
+          "andTotal": 4,
+          "error": null
+        }
+      ],
+      "costUsd": 0.021448000000000002,
+      "logs": [],
+      "error": null
+    },
+    {
+      "id": "sc-11",
+      "title": "初期費用を聞かれて引き継ぎ → AI は止まらず探し直せる → 「担当者と話したい」で再び引き継ぎ",
+      "start": "2026-10-22T08:50:00+09:00",
+      "expectedReach": "handoff",
+      "score": {
+        "id": "sc-11",
+        "title": "初期費用を聞かれて引き継ぎ → AI は止まらず探し直せる → 「担当者と話したい」で再び引き継ぎ",
+        "steps": {
+          "correct": 4,
+          "total": 4,
+          "rate": 1
+        },
+        "failures": [],
+        "aborted": null,
+        "expectedReach": "handoff",
+        "reach": "handoff",
+        "reachOk": true,
+        "startedOutsideHours": true,
+        "passed": true,
+        "textLatenciesMs": [
+          2880,
+          1481,
+          2273,
+          1605
+        ],
+        "answerLatenciesMs": [],
+        "costUsd": 0.029963999999999998,
+        "costJpy": 4.494599999999999,
+        "searches": [
+          {
+            "step": 0,
+            "mustTotal": 7,
+            "andTotal": 7
+          },
+          {
+            "step": 1,
+            "mustTotal": 7,
+            "andTotal": 7
+          },
+          {
+            "step": 2,
+            "mustTotal": 11,
+            "andTotal": 11
+          },
+          {
+            "step": 3,
+            "mustTotal": 11,
+            "andTotal": 11
+          }
+        ],
+        "baselineReach": "handoff"
+      },
+      "aborted": null,
+      "turns": [
+        {
+          "input": {
+            "kind": "text",
+            "text": "渋谷で9万まで"
+          },
+          "texts": [
+            "ただいま営業時間外ですが、物件探しはお手伝いできます。",
+            "条件に合う物件が7件あります。合っている順に5件お見せします。\n（外せない: 渋谷エリア・予算9万円以内）\n駅からの徒歩は15分以内を目安に並べています。",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0169",
+            "P0070",
+            "P0200",
+            "P0072",
+            "P0076"
+          ],
+          "quickReplies": [
+            "もっと見る"
+          ],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "set",
+                  "key": "area",
+                  "value": {
+                    "stations": [
+                      "渋谷"
+                    ],
+                    "wards": []
+                  }
+                },
+                {
+                  "op": "set",
+                  "key": "rentMax",
+                  "value": 90000
+                }
+              ],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 2878,
+            "costUsd": 0.005488,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 2880,
+          "costUsd": 0.005488,
+          "mustTotal": 7,
+          "andTotal": 7,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "初期費用って全部でいくらになりますか？"
+          },
+          "texts": [
+            "初期費用の確定額については担当者が確認します。ただいま営業時間外のため、10月22日(木)に担当者からご連絡します。\nそのあいだも物件探しはお手伝いできます。"
+          ],
+          "cardIds": [],
+          "quickReplies": [],
+          "state": "presenting",
+          "handoffAdded": [
+            {
+              "text": "初期費用って全部でいくらになりますか？",
+              "topic": "initialCostTotal",
+              "propertyIds": [],
+              "at": "2026-10-21T23:50:22.882Z"
+            }
+          ],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "handoff",
+              "ops": [],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": "initialCostTotal"
+            },
+            "latencyMs": 1480,
+            "costUsd": 0.008092,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 1481,
+          "costUsd": 0.008092,
+          "mustTotal": 7,
+          "andTotal": 7,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "じゃあ中目黒も見てみたいです"
+          },
+          "texts": [
+            "条件に合う物件が11件あります。合っている順に5件お見せします。\n（外せない: 渋谷・中目黒エリア・予算9万円以内）\n駅からの徒歩は15分以内を目安に並べています。",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0169",
+            "P0070",
+            "P0096",
+            "P0001",
+            "P0200"
+          ],
+          "quickReplies": [
+            "もっと見る"
+          ],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "set",
+                  "key": "area",
+                  "value": {
+                    "stations": [
+                      "渋谷",
+                      "中目黒"
+                    ],
+                    "wards": []
+                  }
+                }
+              ],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 2269,
+            "costUsd": 0.008324,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 2273,
+          "costUsd": 0.008324,
+          "mustTotal": 11,
+          "andTotal": 11,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "やっぱり担当の人と直接話したいです"
+          },
+          "texts": [
+            "このご質問は担当者が確認します。ただいま営業時間外のため、10月22日(木)に担当者からご連絡します。\nそのあいだも物件探しはお手伝いできます。"
+          ],
+          "cardIds": [],
+          "quickReplies": [],
+          "state": "presenting",
+          "handoffAdded": [
+            {
+              "text": "やっぱり担当の人と直接話したいです",
+              "topic": null,
+              "propertyIds": [],
+              "at": "2026-10-21T23:51:06.638Z"
+            }
+          ],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "handoff",
+              "ops": [],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 1603,
+            "costUsd": 0.00806,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 1605,
+          "costUsd": 0.00806,
+          "mustTotal": 11,
+          "andTotal": 11,
+          "error": null
+        }
+      ],
+      "costUsd": 0.029963999999999998,
+      "logs": [],
+      "error": null
+    },
+    {
+      "id": "sc-12",
+      "title": "条件の変更と「空いてますか」が同時 → 引き継ぎつつ探し直す → 自由文で内見の日時",
+      "start": "2026-10-18T11:30:00+09:00",
+      "expectedReach": "viewing",
+      "score": {
+        "id": "sc-12",
+        "title": "条件の変更と「空いてますか」が同時 → 引き継ぎつつ探し直す → 自由文で内見の日時",
+        "steps": {
+          "correct": 3,
+          "total": 3,
+          "rate": 1
+        },
+        "failures": [],
+        "aborted": null,
+        "expectedReach": "viewing",
+        "reach": "viewing",
+        "reachOk": true,
+        "startedOutsideHours": false,
+        "passed": true,
+        "textLatenciesMs": [
+          1880,
+          2350,
+          2177
+        ],
+        "answerLatenciesMs": [],
+        "costUsd": 0.022514,
+        "costJpy": 3.3771,
+        "searches": [
+          {
+            "step": 0,
+            "mustTotal": 7,
+            "andTotal": 7
+          },
+          {
+            "step": 1,
+            "mustTotal": 11,
+            "andTotal": 11
+          },
+          {
+            "step": 2,
+            "mustTotal": 11,
+            "andTotal": 11
+          }
+        ],
+        "baselineReach": "viewing"
+      },
+      "aborted": null,
+      "turns": [
+        {
+          "input": {
+            "kind": "text",
+            "text": "渋谷で9万まで"
+          },
+          "texts": [
+            "条件に合う物件が7件あります。合っている順に5件お見せします。\n（外せない: 渋谷エリア・予算9万円以内）\n駅からの徒歩は15分以内を目安に並べています。",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0169",
+            "P0070",
+            "P0200",
+            "P0072",
+            "P0076"
+          ],
+          "quickReplies": [
+            "もっと見る"
+          ],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "set",
+                  "key": "area",
+                  "value": {
+                    "stations": [
+                      "渋谷"
+                    ],
+                    "wards": []
+                  }
+                },
+                {
+                  "op": "set",
+                  "key": "rentMax",
+                  "value": 90000
+                }
+              ],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 1878,
+            "costUsd": 0.005488,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 1880,
+          "costUsd": 0.005488,
+          "mustTotal": 7,
+          "andTotal": 7,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "予算を12万に上げます。あと1番目って空いてますか？"
+          },
+          "texts": [
+            "空室状況については担当者が確認します。営業時間内に担当者からご連絡します。\nそのあいだも物件探しはお手伝いできます。",
+            "条件に合う物件が11件あります。合っている順に5件お見せします。\n上位5件は前回と同じです。続きは「もっと見る」からご覧ください。\n（外せない: 渋谷エリア・予算12万円以内）\n駅からの徒歩は15分以内を目安に並べています。",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0169",
+            "P0070",
+            "P0200",
+            "P0072",
+            "P0076"
+          ],
+          "quickReplies": [
+            "もっと見る"
+          ],
+          "state": "presenting",
+          "handoffAdded": [
+            {
+              "text": "予算を12万に上げます。あと1番目って空いてますか？",
+              "topic": "vacancy",
+              "propertyIds": [
+                "P0169"
+              ],
+              "at": "2026-10-18T02:30:21.883Z"
+            }
+          ],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "set",
+                  "key": "rentMax",
+                  "value": 120000
+                }
+              ],
+              "targetPositions": [
+                1
+              ],
+              "viewingTimes": [],
+              "forbiddenTopic": "vacancy"
+            },
+            "latencyMs": 2348,
+            "costUsd": 0.008328,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 2350,
+          "costUsd": 0.008328,
+          "mustTotal": 11,
+          "andTotal": 11,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "1番目、明日の15時と火曜の11時で見に行きたいです"
+          },
+          "texts": [
+            "「渋谷アパートメント」の内見のご希望を受け付けました。\n① 10月19日(月) 15:00\n② 10月20日(火) 11:00\n\nまだ予約は確定していません。担当者から確定のご連絡をします。"
+          ],
+          "cardIds": [],
+          "quickReplies": [],
+          "state": "handed_off",
+          "handoffAdded": [],
+          "viewingCreated": [
+            {
+              "id": "688d584f-971b-428f-8057-2970eee5a8e8",
+              "propertyId": "P0169",
+              "candidateTimes": [
+                "2026-10-19T15:00",
+                "2026-10-20T11:00"
+              ]
+            }
+          ],
+          "extraction": {
+            "result": {
+              "intent": "viewingRequest",
+              "ops": [],
+              "targetPositions": [
+                1
+              ],
+              "viewingTimes": [
+                "2026-10-19T15:00",
+                "2026-10-20T11:00"
+              ],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 2171,
+            "costUsd": 0.008698,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 2177,
+          "costUsd": 0.008698,
+          "mustTotal": 11,
+          "andTotal": 11,
+          "error": null
+        }
+      ],
+      "costUsd": 0.022514,
+      "logs": [],
+      "error": null
+    },
+    {
+      "id": "sc-13",
+      "title": "条件を聞かれたところで離れる（到達しない）",
+      "start": "2026-10-20T16:20:00+09:00",
+      "expectedReach": "none",
+      "score": {
+        "id": "sc-13",
+        "title": "条件を聞かれたところで離れる（到達しない）",
+        "steps": {
+          "correct": 3,
+          "total": 3,
+          "rate": 1
+        },
+        "failures": [],
+        "aborted": null,
+        "expectedReach": "none",
+        "reach": "none",
+        "reachOk": true,
+        "startedOutsideHours": false,
+        "passed": true,
+        "textLatenciesMs": [
+          1966,
+          1931
+        ],
+        "answerLatenciesMs": [],
+        "costUsd": 0.010328,
+        "costJpy": 1.5492000000000001,
+        "searches": [],
+        "baselineReach": "none"
+      },
+      "aborted": null,
+      "turns": [
+        {
+          "input": {
+            "kind": "follow"
+          },
+          "texts": [
+            "友だち追加ありがとうございます。\nこのアカウントでは AI が一次対応し、担当者が内容を確認します。\n\nご希望のエリア（駅名）とご予算を教えてください。"
+          ],
+          "cardIds": [],
+          "quickReplies": [
+            "渋谷",
+            "新宿",
+            "中目黒",
+            "恵比寿",
+            "池袋",
+            "吉祥寺",
+            "自由が丘",
+            "中野"
+          ],
+          "state": "hearing",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 4,
+          "costUsd": 0,
+          "mustTotal": null,
+          "andTotal": null,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "渋谷あたりで探してます"
+          },
+          "texts": [
+            "ご予算（管理費込みの月額）はどのくらいですか？"
+          ],
+          "cardIds": [],
+          "quickReplies": [
+            "7万円まで",
+            "8万円まで",
+            "9万円まで",
+            "10万円まで",
+            "12万円まで",
+            "15万円まで"
+          ],
+          "state": "hearing",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "set",
+                  "key": "area",
+                  "value": {
+                    "stations": [
+                      "渋谷"
+                    ],
+                    "wards": []
+                  }
+                }
+              ],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 1961,
+            "costUsd": 0.005238,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 1966,
+          "costUsd": 0.005238,
+          "mustTotal": null,
+          "andTotal": null,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "うーん、ちょっと考えます。ありがとうございました"
+          },
+          "texts": [
+            "このアカウントでは賃貸物件探しのお手伝いをしています。ご希望のエリアやご予算、気になる物件についてお知らせください。"
+          ],
+          "cardIds": [],
+          "quickReplies": [],
+          "state": "hearing",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "offTopic",
+              "ops": [],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 1926,
+            "costUsd": 0.00509,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 1931,
+          "costUsd": 0.00509,
+          "mustTotal": null,
+          "andTotal": null,
+          "error": null
+        }
+      ],
+      "costUsd": 0.010328,
+      "logs": [],
+      "error": null
+    },
+    {
+      "id": "sc-14",
+      "title": "緩和の提案を断って離れる（到達しない）",
+      "start": "2026-10-17T19:40:00+09:00",
+      "expectedReach": "none",
+      "score": {
+        "id": "sc-14",
+        "title": "緩和の提案を断って離れる（到達しない）",
+        "steps": {
+          "correct": 3,
+          "total": 3,
+          "rate": 1
+        },
+        "failures": [],
+        "aborted": null,
+        "expectedReach": "none",
+        "reach": "none",
+        "reachOk": true,
+        "startedOutsideHours": true,
+        "passed": true,
+        "textLatenciesMs": [
+          1969,
+          2286
+        ],
+        "answerLatenciesMs": [],
+        "costUsd": 0.01174,
+        "costJpy": 1.7610000000000001,
+        "searches": [
+          {
+            "step": 0,
+            "mustTotal": 2,
+            "andTotal": 2
+          },
+          {
+            "step": 1,
+            "mustTotal": 2,
+            "andTotal": 2
+          },
+          {
+            "step": 2,
+            "mustTotal": 2,
+            "andTotal": 2
+          }
+        ],
+        "baselineReach": "none"
+      },
+      "aborted": null,
+      "turns": [
+        {
+          "input": {
+            "kind": "text",
+            "text": "渋谷で8万まで"
+          },
+          "texts": [
+            "ただいま営業時間外ですが、物件探しはお手伝いできます。",
+            "条件に合う物件が2件あります。合っている順に2件お見せします。\n（外せない: 渋谷エリア・予算8万円以内）\n駅からの徒歩は15分以内を目安に並べています。",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。",
+            "隣の駅（恵比寿・原宿・代官山）も含めると2件増えます。条件を変えますか？"
+          ],
+          "cardIds": [
+            "P0169",
+            "P0070"
+          ],
+          "quickReplies": [
+            "条件を変える",
+            "このままにする"
+          ],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "set",
+                  "key": "area",
+                  "value": {
+                    "stations": [
+                      "渋谷"
+                    ],
+                    "wards": []
+                  }
+                },
+                {
+                  "op": "set",
+                  "key": "rentMax",
+                  "value": 80000
+                }
+              ],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 1961,
+            "costUsd": 0.005488,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 1969,
+          "costUsd": 0.005488,
+          "mustTotal": 2,
+          "andTotal": 2,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=relax&k=slot&key=area&accept=0",
+            "label": "このままにする"
+          },
+          "texts": [
+            "承知しました。条件はそのままにします。ほかに気になる点があればお知らせください。"
+          ],
+          "cardIds": [],
+          "quickReplies": [],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 4,
+          "costUsd": 0,
+          "mustTotal": 2,
+          "andTotal": 2,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "ありがとうございます。また連絡しますね"
+          },
+          "texts": [
+            "このアカウントでは賃貸物件探しのお手伝いをしています。ご希望のエリアやご予算、気になる物件についてお知らせください。"
+          ],
+          "cardIds": [],
+          "quickReplies": [],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "offTopic",
+              "ops": [],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 2282,
+            "costUsd": 0.006252,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 2286,
+          "costUsd": 0.006252,
+          "mustTotal": 2,
+          "andTotal": 2,
+          "error": null
+        }
+      ],
+      "costUsd": 0.01174,
+      "logs": [],
+      "error": null
+    },
+    {
+      "id": "sc-15",
+      "title": "0件で緩められる条件を聞かれる → まだ0件 → 予算を上げ直して内見",
+      "start": "2026-10-19T22:45:00+09:00",
+      "expectedReach": "viewing",
+      "score": {
+        "id": "sc-15",
+        "title": "0件で緩められる条件を聞かれる → まだ0件 → 予算を上げ直して内見",
+        "steps": {
+          "correct": 6,
+          "total": 6,
+          "rate": 1
+        },
+        "failures": [],
+        "aborted": null,
+        "expectedReach": "viewing",
+        "reach": "viewing",
+        "reachOk": true,
+        "startedOutsideHours": true,
+        "passed": true,
+        "textLatenciesMs": [
+          2136,
+          1890,
+          2068
+        ],
+        "answerLatenciesMs": [],
+        "costUsd": 0.019327999999999998,
+        "costJpy": 2.8991999999999996,
+        "searches": [
+          {
+            "step": 0,
+            "mustTotal": 0,
+            "andTotal": 0
+          },
+          {
+            "step": 1,
+            "mustTotal": 0,
+            "andTotal": 0
+          },
+          {
+            "step": 2,
+            "mustTotal": 7,
+            "andTotal": 5
+          },
+          {
+            "step": 3,
+            "mustTotal": 7,
+            "andTotal": 5
+          },
+          {
+            "step": 4,
+            "mustTotal": 7,
+            "andTotal": 5
+          },
+          {
+            "step": 5,
+            "mustTotal": 7,
+            "andTotal": 5
+          }
+        ],
+        "baselineReach": "none"
+      },
+      "aborted": null,
+      "turns": [
+        {
+          "input": {
+            "kind": "text",
+            "text": "渋谷で5万まで。オートロックは必須です"
+          },
+          "texts": [
+            "ただいま営業時間外ですが、物件探しはお手伝いできます。",
+            "いまの条件では合う物件が見つかりませんでした。\n（外せない: 渋谷エリア・予算5万円以内・オートロック）",
+            "どの条件なら緩められそうですか？下から選ぶと、その条件を「できれば」にして探し直します。"
+          ],
+          "cardIds": [],
+          "quickReplies": [
+            "予算5万円以内",
+            "オートロック"
+          ],
+          "state": "hearing",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "set",
+                  "key": "area",
+                  "value": {
+                    "stations": [
+                      "渋谷"
+                    ],
+                    "wards": []
+                  }
+                },
+                {
+                  "op": "set",
+                  "key": "rentMax",
+                  "value": 50000
+                },
+                {
+                  "op": "addTag",
+                  "tag": "オートロック",
+                  "priority": "must"
+                }
+              ],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 2125,
+            "costUsd": 0.005776,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 2136,
+          "costUsd": 0.005776,
+          "mustTotal": 0,
+          "andTotal": 0,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=loosen&k=tag&tag=%E3%82%AA%E3%83%BC%E3%83%88%E3%83%AD%E3%83%83%E3%82%AF",
+            "label": "オートロック"
+          },
+          "texts": [
+            "いまの条件では合う物件が見つかりませんでした。\n（外せない: 渋谷エリア・予算5万円以内 / できれば: オートロック）",
+            "条件を変えて送ってください（例:「予算10万まで」「駅から15分でもいい」「オートロックはなくてもいい」）。"
+          ],
+          "cardIds": [],
+          "quickReplies": [],
+          "state": "hearing",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 8,
+          "costUsd": 0,
+          "mustTotal": 0,
+          "andTotal": 0,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "じゃあ予算は9万まで上げます"
+          },
+          "texts": [
+            "条件に合う物件が7件あります。合っている順に5件お見せします。\n（外せない: 渋谷エリア・予算9万円以内 / できれば: オートロック）\n駅からの徒歩は15分以内を目安に並べています。",
+            "回答は参考情報です。契約条件は担当者からの案内が優先されます。"
+          ],
+          "cardIds": [
+            "P0169",
+            "P0200",
+            "P0072",
+            "P0149",
+            "P0185"
+          ],
+          "quickReplies": [
+            "もっと見る"
+          ],
+          "state": "presenting",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "conditions",
+              "ops": [
+                {
+                  "op": "set",
+                  "key": "rentMax",
+                  "value": 90000
+                }
+              ],
+              "targetPositions": [],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 1885,
+            "costUsd": 0.00539,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 1890,
+          "costUsd": 0.00539,
+          "mustTotal": 7,
+          "andTotal": 5,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "text",
+            "text": "2番目の内見をお願いします"
+          },
+          "texts": [
+            "「さくらフラットⅡ」の内見ですね。ご希望の日時を2〜3つ教えてください（例: 10月20日(火) 14時）。下の候補日から選ぶこともできます。"
+          ],
+          "cardIds": [],
+          "quickReplies": [
+            "10月20日(火)",
+            "10月22日(木)",
+            "10月23日(金)",
+            "10月24日(土)",
+            "10月25日(日)"
+          ],
+          "state": "booking",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": {
+            "result": {
+              "intent": "viewingRequest",
+              "ops": [],
+              "targetPositions": [
+                2
+              ],
+              "viewingTimes": [],
+              "forbiddenTopic": null
+            },
+            "latencyMs": 2063,
+            "costUsd": 0.008162,
+            "model": "claude-sonnet-5-5"
+          },
+          "answers": [],
+          "latencyMs": 2068,
+          "costUsd": 0.008162,
+          "mustTotal": 7,
+          "andTotal": 5,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=viewingDay&d=2026-10-20",
+            "label": "10月20日(火)"
+          },
+          "texts": [
+            "いま 10月20日(火) をお預かりしています。ほかの候補があれば教えてください。このままでよければ「この日時で送る」を押してください。"
+          ],
+          "cardIds": [],
+          "quickReplies": [
+            "10月22日(木)",
+            "10月23日(金)",
+            "10月24日(土)",
+            "10月25日(日)",
+            "この日時で送る"
+          ],
+          "state": "booking",
+          "handoffAdded": [],
+          "viewingCreated": [],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 6,
+          "costUsd": 0,
+          "mustTotal": 7,
+          "andTotal": 5,
+          "error": null
+        },
+        {
+          "input": {
+            "kind": "postback",
+            "data": "a=bookingSubmit",
+            "label": "この日時で送る"
+          },
+          "texts": [
+            "「さくらフラットⅡ」の内見のご希望を受け付けました。\n① 10月20日(火)\n\nまだ予約は確定していません。ただいま営業時間外のため、10月20日(火)に担当者から確定のご連絡をします。"
+          ],
+          "cardIds": [],
+          "quickReplies": [],
+          "state": "handed_off",
+          "handoffAdded": [],
+          "viewingCreated": [
+            {
+              "id": "87de59ba-4792-4871-8010-eaa9f97b0686",
+              "propertyId": "P0200",
+              "candidateTimes": [
+                "2026-10-20"
+              ]
+            }
+          ],
+          "extraction": null,
+          "answers": [],
+          "latencyMs": 5,
+          "costUsd": 0,
+          "mustTotal": 7,
+          "andTotal": 5,
+          "error": null
+        }
+      ],
+      "costUsd": 0.019327999999999998,
+      "logs": [],
+      "error": null
+    }
+  ]
+}

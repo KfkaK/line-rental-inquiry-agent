@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { NEAR_STATION_WALK_MIN } from './rules';
+import { NEAR_STATION_WALK_MIN, WALK_NO_PREFERENCE_MIN } from './rules';
 import {
+  applyWalkNoPreference,
   canonicalizeOps,
   canonicalizeOpsWithReport,
   canonicalizeViewingTime,
@@ -24,7 +25,7 @@ import {
   resolveWard,
 } from './normalize';
 import { STATIONS, WARDS } from './stations';
-import { TAGS } from './types';
+import { TAGS, type ExtractionResult, type SlotOp } from './types';
 
 /** 2026-10-07 20:00 JST（UTC では 11:00） */
 const NOW = new Date('2026-10-07T11:00:00Z');
@@ -609,5 +610,46 @@ describe('canonicalizeOps（LLM 出力の後段）', () => {
     const copy = JSON.parse(JSON.stringify(raw));
     canonicalizeOps(raw);
     expect(raw).toEqual(copy);
+  });
+});
+
+describe('applyWalkNoPreference（「駅から遠くてもいい」を徒歩の条件にする。意思決定ログ31）', () => {
+  const base = (ops: SlotOp[] = [], intent: ExtractionResult['intent'] = 'conditions'): ExtractionResult => ({
+    intent,
+    ops,
+    targetPositions: [],
+    viewingTimes: [],
+    forbiddenTopic: null,
+  });
+  const NO_PREF: SlotOp = { op: 'set', key: 'walkMax', value: WALK_NO_PREFERENCE_MIN, priority: 'nice' };
+
+  it.each(['駅から遠くても大丈夫です', '徒歩は何分でも気にしないです', '駅からの距離は気にしないです', '駅近じゃなくてもいいです', '徒歩は問わないです'])(
+    '%s → 徒歩 60 分以内・あれば嬉しい',
+    (utterance) => {
+      expect(applyWalkNoPreference(base(), utterance).ops).toEqual([NO_PREF]);
+    },
+  );
+
+  it('抽出が出した徒歩の操作（unset・setPriority）は置き換え、ほかの操作は残す', () => {
+    const ops: SlotOp[] = [
+      { op: 'unset', key: 'walkMax' },
+      { op: 'setPriority', key: 'walkMax', priority: 'nice' },
+      { op: 'set', key: 'rentMax', value: 80000 },
+    ];
+    expect(applyWalkNoPreference(base(ops), '駅から遠くてもいいので8万まで').ops).toEqual([
+      { op: 'set', key: 'rentMax', value: 80000 },
+      NO_PREF,
+    ]);
+  });
+
+  it('抽出が offTopic に倒れていても条件として扱う', () => {
+    expect(applyWalkNoPreference(base([], 'offTopic'), '駅から遠くても大丈夫').intent).toBe('conditions');
+  });
+
+  it('徒歩の条件の優先度だけを変える発話・ほかの「どっちでもいい」には触れない', () => {
+    for (const utterance of ['2階以上は必須、ほかはどっちでもいい', 'やっぱり駅から徒歩10分以内は絶対条件でお願いします', '駅近がいいです']) {
+      const result = base([{ op: 'setPriority', key: 'walkMax', priority: 'must' }]);
+      expect(applyWalkNoPreference(result, utterance)).toBe(result);
+    }
   });
 });

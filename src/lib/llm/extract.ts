@@ -11,7 +11,7 @@
 import { z } from 'zod';
 import { detectForbiddenTopicByKeyword } from '../../domain/forbidden';
 import { canonicalizeOpsWithReport, canonicalizeViewingTime, jstParts, preNormalize, type NormalizeHints } from '../../domain/normalize';
-import { DEFAULT_PRIORITY, FALLBACK_RELAX_RENT_YEN, NEAR_STATION_WALK_MIN, WALK_NO_PREFERENCE_MIN } from '../../domain/rules';
+import { DEFAULT_PRIORITY, FALLBACK_RELAX_RENT_YEN, NEAR_STATION_WALK_MIN } from '../../domain/rules';
 import { relevantAccess } from '../../domain/search';
 import { STATIONS, WARDS } from '../../domain/stations';
 import {
@@ -358,7 +358,6 @@ export const EXTRACTION_RULES_PROMPT = `# intent（発話の主目的）
 - 金額は円の整数。「7万」→ 70000、「7.5万」→ 75000。「7万以内」「7万まで」「7万前後」はどれも rentMax 70000
 - 「もう少し安く」「安いのは？」: 現在の rentMax があれば ${FALLBACK_RELAX_RENT_YEN} 円下げた値で set。rentMax が無ければ ops は空
 - 「駅近」→ walkMax ${NEAR_STATION_WALK_MIN}。「徒歩5分以内」→ 5
-- 「駅から遠くてもいい」「徒歩は何分でもいい」「駅からの距離は気にしない」→ walkMax ${WALK_NO_PREFERENCE_MIN} を priority nice で set（現在の walkMax があってもこの値で set。unset にしない）
 - 「2階以上」→ floorMin 2
 - moveIn は 'YYYY-MM'（JST）。ヒントに入居時期があればその値を使う。入居時期（来月から住みたい）と内見の希望日（来月の週末に見たい）を取り違えない
 - 「ワンルーム」は 1R。LAYOUTS に無い間取り（3LDK など）は出さない

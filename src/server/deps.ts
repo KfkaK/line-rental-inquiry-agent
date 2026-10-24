@@ -7,6 +7,7 @@ import { isDemoMode, optionalEnv } from '@/lib/env';
 import { createLineMessenger } from '@/lib/line/messenger';
 import { generateAnswer } from '@/lib/llm/answer';
 import { createAnthropicClient, type Logger } from '@/lib/llm/client';
+import { applyWalkNoPreference } from '@/domain/normalize';
 import { extractIntentAndSlots, toShownProperties, withKeywordSafetyNet } from '@/lib/llm/extract';
 import { createResendNotifier } from '@/lib/notify/resend';
 import type { Answerer, Deps, Extractor, StaffNotifier } from './handleEvent';
@@ -36,8 +37,9 @@ export function createExtractor(client = createAnthropicClient(), options: LlmSt
       useDictionary: options.useDictionary,
       shown: toShownProperties(shown, slots),
     });
-    // 抽出に2回失敗して offTopic に倒れたときだけ、禁止トピックを語で拾う安全網をかける
-    const result = withKeywordSafetyNet(out.result, utterance, out.fallback);
+    // 抽出に2回失敗して offTopic に倒れたときだけ、禁止トピックを語で拾う安全網をかける。
+    // 「駅から遠くてもいい」は語で拾って徒歩の条件にする（プロンプトの規則にすると他の徒歩の発話が崩れた。意思決定ログ31）
+    const result = applyWalkNoPreference(withKeywordSafetyNet(out.result, utterance, out.fallback), utterance);
     return { result, latencyMs: out.latencyMs, costUsd: out.costUsd, model: out.model };
   };
 }

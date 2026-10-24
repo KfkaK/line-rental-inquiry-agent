@@ -5,7 +5,7 @@
  * - 抽出精度はモデルよりここで決まることが多い（DESIGN.md 3.2）。辞書は足しやすいようデータとして上に並べる
  * - 辞書の検出結果（hints）は LLM に添える「候補」。LLM は発話の文脈で採否を決める
  */
-import { CLAMP, NEAR_STATION_WALK_MIN, RENT_IN_MAN_UP_TO, TIMEZONE_OFFSET_MINUTES } from './rules';
+import { CLAMP, NEAR_STATION_WALK_MIN, RENT_IN_MAN_UP_TO, TIMEZONE_OFFSET_MINUTES, WALK_NO_PREFERENCE_MIN } from './rules';
 import { STATIONS, WARDS } from './stations';
 import {
   LAYOUTS,
@@ -13,6 +13,7 @@ import {
   SCALAR_SLOT_KEYS,
   TAGS,
   type AreaValue,
+  type ExtractionResult,
   type Layout,
   type Priority,
   type ScalarSlotKey,
@@ -1028,4 +1029,24 @@ export function canonicalizeOpsWithReport(ops: unknown[]): { ops: SlotOp[]; drop
 
 export function canonicalizeOps(ops: unknown[]): SlotOp[] {
   return canonicalizeOpsWithReport(ops).ops;
+}
+
+// ---------- 徒歩の条件を問わない言い回し（意思決定ログ31） ----------
+
+/**
+ * 「駅から遠くてもいい」「徒歩は気にしない」「駅近じゃなくてもいい」。抽出のプロンプトに規則を足すと、
+ * 徒歩の条件の優先度だけを変える発話（「ほかはどっちでもいい」「徒歩10分以内は絶対」）まで崩れたので、語で拾う
+ */
+const WALK_NO_PREFERENCE_RE =
+  /駅から(?:は)?遠くても(?:いい|良い|大丈夫|構わない|かまわない|OK)|駅からの距離は(?:気にしない|問わない|どうでもいい|こだわらない|関係ない)|徒歩(?:は|の時間は)?(?:何分でも|気にしない|問わない|こだわらない|どうでもいい)|駅(?:近|ちか)(?:じゃ|で)?なくても(?:いい|良い|大丈夫|構わない|かまわない)/;
+
+/**
+ * 発話が徒歩の条件を問わないと言っていれば、抽出の結果の徒歩の操作を「徒歩 WALK_NO_PREFERENCE_MIN 分以内・あれば嬉しい」に置き換える。
+ * 徒歩の条件が無いと検索は徒歩の目安（DEFAULT_WALK_PREFERENCE_MIN）で並べるので、明示の条件にして目安を外す
+ */
+export function applyWalkNoPreference(result: ExtractionResult, utterance: string): ExtractionResult {
+  if (!WALK_NO_PREFERENCE_RE.test(normalizeText(utterance))) return result;
+  const ops: SlotOp[] = result.ops.filter((op) => !('key' in op && op.key === 'walkMax'));
+  ops.push({ op: 'set', key: 'walkMax', value: WALK_NO_PREFERENCE_MIN, priority: 'nice' });
+  return { ...result, intent: result.intent === 'offTopic' ? 'conditions' : result.intent, ops };
 }
