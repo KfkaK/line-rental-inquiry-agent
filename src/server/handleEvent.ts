@@ -6,7 +6,14 @@
 import type { webhook } from '@line/bot-sdk';
 import { fromJst, isOpenAt, nextContactDay, toJst } from '@/domain/businessHours';
 import * as msg from '@/domain/messages';
-import { AI_RESUME_AFTER_MS, RATE_LIMIT_PER_MINUTE } from '@/domain/rules';
+import { isOpenViewing } from '@/domain/staff';
+import {
+  AI_RESUME_AFTER_MS,
+  DAILY_TURNS_PER_USER,
+  EVENT_RATE_LIMIT_PER_MINUTE,
+  RATE_LIMIT_PER_MINUTE,
+  UTTERANCE_MAX_CHARS,
+} from '@/domain/rules';
 import { decideTurn, isUnstarted, type ButtonEvent, type ConversationSnapshot, type TurnEvent } from '@/domain/turn';
 import type { ExtractionResult, ForbiddenTopic, Property, Slots } from '@/domain/types';
 import type { Conversation, Repositories, Verification } from '@/lib/db';
@@ -117,6 +124,7 @@ export async function handleEvent(event: webhook.Event, deps: Deps): Promise<voi
   // ---- イベント → 会話エンジンへの入力 ----
   let userText: string;
   let button: ButtonEvent | null = null;
+  let nonText = false;
   switch (event.type) {
     case 'follow': {
       const profile = await messenger.getProfile(userId);
@@ -126,11 +134,9 @@ export async function handleEvent(event: webhook.Event, deps: Deps): Promise<voi
     }
     case 'message': {
       await repos.lineUsers.upsert({ lineUserId: userId });
-      if (event.message.type !== 'text') {
-        await send(messenger, userId, replyToken, [{ type: 'text', text: msg.textOnly() }]);
-        return;
-      }
-      userText = event.message.text;
+      // 画像・スタンプなどは、有人対応中かを見てから扱う（停止中に AI が定型文を返さない。不変条件 8・セキュリティ点検 A8）
+      nonText = event.message.type !== 'text';
+      userText = event.message.type === 'text' ? clip(event.message.text) : '[画像・スタンプなど]';
       break;
     }
     case 'postback': {
@@ -171,18 +177,41 @@ export async function handleEvent(event: webhook.Event, deps: Deps): Promise<voi
     }
   }
 
+  if (nonText) {
+    await send(messenger, userId, replyToken, [{ type: 'text', text: msg.textOnly() }]);
+    return;
+  }
+
   // ---- レート制限と1日の費用上限（LLM を呼ぶ自由文だけ。DESIGN.md 4.4） ----
-  // 数えるのは直近1分に条件抽出を通したターン。ボタン・友だち追加は LLM を呼ばないので数えない（意思決定ログ10）
+  // 数えるのは条件抽出を通したターン。ボタン・友だち追加は LLM を呼ばないので数えない（意思決定ログ10）。
+  // 1日の費用上限は全員で1つなので、利用者ごとの1日のターン数でも止める（1人で全員の枠を使い切らない。セキュリティ点検 A5）
   const isText = event.type === 'message';
   if (isText) {
+    const today = fromJst(toJst(startedAt).date, '00:00');
     const recent = await repos.messages.countExtractedTurnsSince(userId, new Date(startedAt.getTime() - MINUTE_MS));
-    const spent = await repos.messages.sumCostSince(fromJst(toJst(startedAt).date, '00:00'));
+    const turnsToday = await repos.messages.countExtractedTurnsSince(userId, today);
+    const spent = await repos.messages.sumCostSince(today);
     await repos.messages.insert({ conversationId: conv.id, role: 'user', text: userText });
-    if (recent >= RATE_LIMIT_PER_MINUTE || spent >= deps.dailyCostLimitUsd) {
-      await send(messenger, userId, replyToken, [{ type: 'text', text: msg.rateLimited() }]);
+    const refusal =
+      event.message.type === 'text' && Array.from(event.message.text).length > UTTERANCE_MAX_CHARS
+        ? msg.tooLong(UTTERANCE_MAX_CHARS)
+        : turnsToday >= DAILY_TURNS_PER_USER
+          ? msg.dailyLimitReached()
+          : recent >= RATE_LIMIT_PER_MINUTE || spent >= deps.dailyCostLimitUsd
+            ? msg.rateLimited()
+            : null;
+    if (refusal) {
+      await send(messenger, userId, replyToken, [{ type: 'text', text: refusal }]);
       return;
     }
     await messenger.showLoading(userId, LOADING_SECONDS);
+  } else if (button) {
+    // LLM を呼ばない操作も、連打で DB と送信を埋めないよう緩く止める（保存はこのあと。数えるのはそれまでの発言）
+    const recentEvents = await repos.messages.countUserMessagesSince(conv.id, new Date(startedAt.getTime() - MINUTE_MS));
+    if (recentEvents >= EVENT_RATE_LIMIT_PER_MINUTE) {
+      await send(messenger, userId, replyToken, [{ type: 'text', text: msg.rateLimited() }]);
+      return;
+    }
   }
 
   const [properties, calendar] = await Promise.all([repos.properties.listPublic(), repos.businessCalendar.get()]);
@@ -226,7 +255,12 @@ export async function handleEvent(event: webhook.Event, deps: Deps): Promise<voi
       ? await hasShownOutsideHoursNote(repos, conv.id)
       : false;
   const demo = deps.demoMode === true;
-  const decision = decideTurn(snapshot, turnEvent, { now: startedAt, calendar, properties, demo, greeted });
+  // 未対応の仮受付（同じ物件の重複と、会話ごとの数の上限に使う。セキュリティ点検 A4）。友だち追加では内見に進まないので読まない
+  const openViewings =
+    event.type === 'follow'
+      ? []
+      : (await repos.viewingRequests.listByConversation(conv.id)).filter((v) => isOpenViewing(v.status)).map((v) => v.propertyId);
+  const decision = decideTurn(snapshot, turnEvent, { now: startedAt, calendar, properties, demo, greeted, openViewings });
 
   // ---- 回答生成（提示物件への質問） ----
   const blocks: RenderBlock[] = [];
@@ -416,4 +450,10 @@ function describeBlocks(blocks: readonly RenderBlock[]): string {
         : `[物件カード ${b.startPosition}〜${b.startPosition + b.items.length - 1}番目: ${b.items.map((i) => i.property.id).join(', ')}]`,
     )
     .join('\n\n');
+}
+
+/** 保存する発話を字数の上限で切る（上限を超えた発話は LLM に渡さずに断るので、ここは保存の大きさを抑えるだけ） */
+function clip(text: string): string {
+  const chars = Array.from(text);
+  return chars.length > UTTERANCE_MAX_CHARS ? `${chars.slice(0, UTTERANCE_MAX_CHARS).join('')}…` : text;
 }

@@ -65,7 +65,8 @@ export async function login(_prev: FormState, formData: FormData): Promise<FormS
 export async function logout(): Promise<void> {
   if (!isAdminPreview()) {
     const supabase = await createSessionClient();
-    await supabase.auth.signOut();
+    // この端末のセッションだけ切る。既定（global）だと、共有の閲覧用アカウントで他の閲覧者のセッションまで切れる
+    await supabase.auth.signOut({ scope: 'local' });
   }
   redirect('/admin/login');
 }

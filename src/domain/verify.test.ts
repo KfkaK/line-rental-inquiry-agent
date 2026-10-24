@@ -1025,6 +1025,62 @@ describe('取りこぼしの残り（敷金礼金の円換算・漢数字のメ�
   });
 });
 
+describe('書いてはいけない形・レコードに無い事柄・比較の主張（セキュリティ点検 A2・A3。意思決定ログ36）', () => {
+  describe('URL・メールアドレス・連絡先の番号・確約は、記載なしの文脈でも落とす', () => {
+    const cases: IssueCase[] = [
+      { name: 'URL', text: '詳しくは https://evil.example/login をご覧ください。', issue: { kind: 'banned' } },
+      { name: 'ドメインだけ', text: 'evil-example.com で確認できます。', issue: { kind: 'banned' } },
+      { name: 'メールアドレス', text: 'staff@example.jp までご連絡ください。', issue: { kind: 'banned' } },
+      { name: '漢数字の電話番号', text: 'お電話はゼロ三の一二三四の五六七八までどうぞ。', issue: { kind: 'banned' } },
+      { name: '内見の確定（不変条件4）', text: '内見は確定しました。担当者がお待ちしております。', issue: { kind: 'banned' } },
+      { name: '契約の確約', text: 'すぐにご契約いただけます。', issue: { kind: 'banned' } },
+      { name: '記載なしの文脈でも', text: 'https://evil.example の記載はありません。', issue: { kind: 'banned' } },
+    ];
+    it.each(cases)('$name', expectIssue);
+  });
+
+  describe('レコードに無い事柄・審査の属性・安全の言い切りは、記載なし・担当者が確認する文脈でだけ通す', () => {
+    const ng: IssueCase[] = [
+      { name: '値引き', text: '家賃の値引きは可能です。', issue: { kind: 'unrecorded', word: '値引き' } },
+      { name: '事故物件', text: 'この物件は事故物件ではありません。', issue: { kind: 'unrecorded', word: '事故物件' } },
+      { name: '更新料', text: '更新料は1か月分です。', issue: { kind: 'unrecorded', word: '更新料' } },
+      { name: '国籍', text: '外国籍の方でも問題なくご入居いただけます。', issue: { kind: 'forbidden', topic: 'screening' } },
+      { name: '収入', text: '収入が少なくても借りられます。', issue: { kind: 'forbidden', topic: 'screening' } },
+      { name: '安全', text: 'このエリアは安全で、夜も安心です。', issue: { kind: 'forbidden', topic: 'safety' } },
+    ];
+    it.each(ng)('落とす: $name', expectIssue);
+
+    const ok: Case[] = [
+      { name: '事故物件の記載なし', text: '事故物件かどうかは物件情報に記載がありません。' },
+      { name: '値引きは担当者が確認', text: '値引きについては担当者が確認します。' },
+      { name: '国籍は担当者が確認', text: '国籍による入居の可否は担当者が確認します。' },
+      { name: '確定するのは担当者', text: '内見の日時は担当者が確定します。' },
+      { name: '未確定', text: '内見の日時はまだ未確定です。' },
+    ];
+    it.each(ok)('通す: $name', expectOk);
+  });
+
+  describe('質問の数値を比較の形で繰り返したら、レコードで本当のときだけ通す（MOMIJI: 家賃 81,000・管理費 4,000・2階・徒歩10分）', () => {
+    const ok: Case[] = [
+      { name: '家賃は9万円以内', text: '家賃は9万円以内です。', question: '家賃は9万円以内ですか？' },
+      { name: '月額は9万円以内', text: '月額は9万円以内に収まります。', question: '月額9万以内？' },
+      { name: '2階以上', text: '2階以上です。', question: '2階以上ですか？' },
+      { name: '打ち消しが本当', text: '徒歩5分以内ではありません。徒歩10分です。', question: '徒歩5分以内ですか？' },
+      { name: '管理費の節は管理費と比べる', text: '管理費は5千円以内です。', question: '管理費は5千円以内？' },
+    ];
+    it.each(ok)('通す: $name', expectOk);
+
+    const ng: IssueCase[] = [
+      { name: '月額は8万円以内（家賃も月額も超える）', text: '月額は8万円以内に収まります。', question: '月額8万円以内ですよね？', issue: { kind: 'number', token: '8万円' } },
+      { name: '5階以上（2階）', text: '5階以上です。', question: '5階以上ですか？', issue: { kind: 'number', token: '5階' } },
+      { name: '徒歩5分以内（10分）', text: '徒歩5分以内です。', question: '駅から5分以内ですよね？', issue: { kind: 'number', token: '5分' } },
+      { name: '打ち消しが嘘', text: '9万円以内ではありません。', question: '9万円以内ですか？', issue: { kind: 'number', token: '9万円' } },
+      { name: '管理費は3千円以内（4,000）', text: '管理費は3千円以内です。', question: '管理費は3千円以内？', issue: { kind: 'number', token: '3千円' } },
+    ];
+    it.each(ng)('落とす: $name', expectIssue);
+  });
+});
+
 describe('saysNotInRecord', () => {
   it.each([
     ['物件情報に駐輪場の記載はありません。', true],
