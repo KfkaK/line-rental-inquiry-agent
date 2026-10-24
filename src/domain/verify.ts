@@ -585,7 +585,11 @@ function polarityAt(sentence: string, spans: readonly TermSpan[], index: number)
     window += between;
     if (PREDICATE_WORD_RE.test(between)) break;
     pos = spans[next].end;
-    pos += ATTACHED_PREDICATE_RE.exec(sentence.slice(pos))?.[0].length ?? 0;
+    const rest = sentence.slice(pos);
+    // 「敷金なし」「礼金なし」はタグ名そのもの（特徴の列挙に出る）なので、後ろが述語でも前の語に掛けない（意思決定ログ29）
+    const skipped = spans[next].term;
+    const depositNone = skipped.kind === 'feature' && /敷金|礼金/.test(skipped.feature) ? /^(?:なし|無し)/.exec(rest) : null;
+    pos += (depositNone ?? ATTACHED_PREDICATE_RE.exec(rest))?.[0].length ?? 0;
   }
   window = window.replace(NOT_NEGATION_RE, '');
   if (NEUTRAL_RE.test(window)) return 'neutral';
