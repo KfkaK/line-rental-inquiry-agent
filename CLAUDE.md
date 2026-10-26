@@ -38,6 +38,7 @@
 - `npm run design:lint`（`npm run check` と CI に含む）: `docs/visual-design.md` の書式（壊れた参照など）を落とす。`@google/design.md` は試作版なので版を固定し、勝手に上げない
 - `npm run check:design-tokens`（同上）: `docs/visual-design.md` の colors が `theme.ts` の light・dark の写しになっているか（値の違い・片方にしか無い色）を落とす
 - axe-core（`e2e/a11y.spec.ts`・CI の `a11y` ワークフロー）: 本番ビルドの `/`・`/privacy`・`/terms`・`/admin/login` を、ライトとダークで WCAG 2.x の A・AA の規則で調べる。手元では `npm run build && npm run test:a11y`（初回は `npx playwright install chromium`）
+- `prebuild` の `scripts/check-legal.ts`（`npm run build` の前に必ず走る）: 製品の本番ビルド（Vercel の Production で `DEMO_MODE` が 1 でない）で、`src/app/_legal/operator.ts` の発注者が埋める欄に印が残っているか、ポリシーの文面がデモ版のままなら落とす。公開デモの本番・Preview・CI・手元は素通り（意思決定ログ41）
 
 ## モデル分担
 
