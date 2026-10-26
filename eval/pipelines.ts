@@ -3,8 +3,8 @@
  *
  * - two-model: 本番と同じ（`src/server/deps.ts` の `createExtractor`（Haiku 4.5）＋ `createAnswerer`（Sonnet 5.5））。
  *   回答生成のクライアントは本番と同じ短いタイムアウト・再試行なし（`createAnswerer` の既定）を使う
- * - haiku-answer: 回答生成も Haiku 4.5（引き継ぎ書6章②の (b)）
- * - one-model: Sonnet 5.5 の1回で抽出と回答を兼ねる（`src/lib/llm/combined.ts`。引き継ぎ書6章②の (a)）
+ * - haiku-answer: 回答生成も Haiku 4.5（質問のターンを縮める案。意思決定ログ32）
+ * - one-model: Sonnet 5.5 の1回で抽出と回答を兼ねる（`src/lib/llm/combined.ts`。質問のターンを縮める案。意思決定ログ32）
  *
  * one-model は回答を内部に預けるので、**会話（ケース・シナリオ）ごとに作り直す**。ほかの構成も同じく毎回作ってよい。
  */
