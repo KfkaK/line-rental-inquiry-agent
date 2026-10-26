@@ -10,6 +10,7 @@
 1. `docs/引き継ぎ書.md` の 2章（現在地）・4章（絶対に守る不変条件）・6章（次にやること）・7章（ユーザーの判断待ち）
 2. 実装する機能の仕様は `DESIGN.md` の該当章
 3. 経緯が要るときだけ `docs/意思決定ログ.md`（「意思決定ログN」は N 番）
+4. **UI を作る・直す前に `docs/visual-design.md`**（見た目の決まり。design.md の書式。ルートの `DESIGN.md` は仕様書で別物）
 
 ## 進め方（ユーザーとの合意）
 
@@ -34,6 +35,9 @@
 - `npm run check:docs`（`npm run check` と CI に含む）: 意思決定ログの番号の重複・欠番、同じファイルの中の `## ` 見出しの重複、.md の BOM・CRLF・UTF-8 以外を落とす。引き継ぎ書の上限（全体 50KB・ユーザーの次の一手 4KB・2章 6KB・6章 15KB・7章 6KB・2/6/7章の1行 600 バイト・6/7章の ✅・[x]・取り消し線）と、意思決定ログの1件 3KB（38 番から）も落とす（意思決定ログ38）
 - ESLint: `src/domain` で `Date.now()`・引数なしの `new Date()`・`Math.random()` を落とす（引き継ぎ書4章の2・5）
 - 壁打ち役 `fable-advisor`（`.claude/agents/fable-advisor.md`）: モデルは Fable、ツールは読む・調べるだけに固定
+- `npm run design:lint`（`npm run check` と CI に含む）: `docs/visual-design.md` の書式（壊れた参照など）を落とす。`@google/design.md` は試作版なので版を固定し、勝手に上げない
+- `npm run check:design-tokens`（同上）: `docs/visual-design.md` の colors が `theme.ts` の light・dark の写しになっているか（値の違い・片方にしか無い色）を落とす
+- axe-core（`e2e/a11y.spec.ts`・CI の `a11y` ワークフロー）: 本番ビルドの `/`・`/privacy`・`/terms`・`/admin/login` を、ライトとダークで WCAG 2.x の A・AA の規則で調べる。手元では `npm run build && npm run test:a11y`（初回は `npx playwright install chromium`）
 
 ## モデル分担
 
@@ -59,6 +63,7 @@
 
 - 好みは **シンプルで落ち着いた低彩度**。派手な色・ゲーミフィケーション的な装飾は入れない
 - 太字は 600 まで・行間広め・アクセントは1色。色は必ず `src/constants/theme.ts` のトークン経由（管理画面も Flex Message も）で、足したら `npm run check:contrast` で AA（4.5:1）を実測する
+- 決まりは `docs/visual-design.md` に書いてある（UI を作る・直す前に読む）。**色や部品の決まりを変えたら、`theme.ts`（色の正本）と `docs/visual-design.md` の両方を直す**。design.md の色は写しで、ずれは `check:design-tokens` が落とす
 
 ## 編集の落とし穴
 
