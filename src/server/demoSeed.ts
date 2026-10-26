@@ -154,21 +154,23 @@ export interface DemoRefreshResult {
 }
 
 /**
- * デモ会話を作り直す: 既存のデモ（is_demo の会話・'demo-' のLINEユーザー）を消し、`buildPreviewSeed(now, 公開物件)` を入れ直す。
- * 物件は Supabase の properties から読む（Vercel の関数は data/ を fs で読めない）。公開物件が 0 件なら何もせず投げる。
- * `dryRun` は読むだけ（物件の読み出し）で、件数を返す
+ * デモ会話を作り直す: 既存のデモ（is_demo の会話・'demo-' のLINEユーザー）を消し、`buildPreviewSeed(now, 公開物件, 営業カレンダー)` を入れ直す。
+ * 物件と営業カレンダーは Supabase から読む（Vercel の関数は data/ を fs で読めない）。公開物件が 0 件なら何もせず投げる。
+ * `dryRun` は読むだけ（物件と営業カレンダーの読み出し）で、件数を返す
  */
 export async function refreshDemoData(
   client: SupabaseClient,
   now: Date,
   options: { dryRun?: boolean } = {},
 ): Promise<DemoRefreshResult> {
-  const properties = await createSupabaseRepositories(client).properties.listPublic();
+  const repos = createSupabaseRepositories(client);
+  const [properties, calendar] = await Promise.all([repos.properties.listPublic(), repos.businessCalendar.get()]);
   if (properties.length === 0) {
     throw new Error('公開物件が 0 件のため、デモ会話を作り直しません（先に npm run data:import で物件を取り込んでください）');
   }
-  // 消す前に組み立てる（組み立てに失敗しても、いまのデモ会話は残る）
-  const rows = buildDemoRows(buildPreviewSeed(now, properties));
+  // 消す前に組み立てる（組み立てに失敗しても、いまのデモ会話は残る）。夜間の範囲は DB の営業カレンダーで作る
+  // （管理画面で営業時間を変えても、朝の一覧の「夜間・休日分」に出る）
+  const rows = buildDemoRows(buildPreviewSeed(now, properties, calendar));
   const counts = {
     properties: properties.length,
     lineUsers: rows.lineUsers.length,
