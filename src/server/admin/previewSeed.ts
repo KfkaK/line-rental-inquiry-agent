@@ -14,7 +14,7 @@ import * as msg from '@/domain/messages';
 import { PAGE_SIZE, VIEWING_DAYS_TO_OFFER } from '@/domain/rules';
 import { searchProperties } from '@/domain/search';
 import { applySlotOps, emptySlots, listConditions } from '@/domain/slots';
-import type { HandoffNote, Intent, Property, SlotOp, Slots, Tag, ViewingStatus } from '@/domain/types';
+import type { BusinessCalendar, HandoffNote, Intent, Property, SlotOp, Slots, Tag, ViewingStatus } from '@/domain/types';
 import { attachTags } from '@/lib/csv/importProperties';
 import { parsePropertiesCsv } from '@/lib/csv/properties';
 import type { Message, MemorySeed, MessageRole, SeedConversation, Verification, ViewingRequest } from '@/lib/db';
@@ -55,8 +55,16 @@ function toMessages(conversationId: string, rows: readonly MessageRow[]): Messag
   }));
 }
 
-export function buildPreviewSeed(now: Date, properties: readonly Property[] = loadPreviewProperties()): MemorySeed {
-  const calendar = defaultCalendar();
+/**
+ * `calendar` は夜間の範囲（前回の営業終了から `now`）・連絡日・内見の候補日に使う。毎朝の作り直し（demoSeed.ts）は
+ * DB の営業カレンダーを渡す（管理画面で営業時間を変えても、デモが「夜間・休日分」から外れないように）。
+ * 内見の候補の時刻（14:00 など）は固定
+ */
+export function buildPreviewSeed(
+  now: Date,
+  properties: readonly Property[] = loadPreviewProperties(),
+  calendar: BusinessCalendar = defaultCalendar(),
+): MemorySeed {
   const close = previousClose(now, calendar);
   const gap = Math.max(now.getTime() - close.getTime(), 0);
   /** 前回の営業終了から `now` までの割合 f（0〜1）の時刻 */
