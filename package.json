@@ -18,7 +18,10 @@
     "eval:compare": "tsx scripts/eval-compare.ts",
     "check:contrast": "node scripts/check-contrast.js",
     "check:docs": "node scripts/check-docs.js",
-    "check": "npm run typecheck && npm run lint && npm test && npm run check:contrast && npm run check:docs"
+    "check": "npm run typecheck && npm run lint && npm test && npm run check:contrast && npm run check:docs && npm run design:lint && npm run check:design-tokens",
+    "design:lint": "designmd lint docs/visual-design.md",
+    "check:design-tokens": "node scripts/check-design-tokens.js",
+    "test:a11y": "playwright test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
@@ -31,6 +34,9 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@google/design.md": "0.4.0",
+    "@playwright/test": "1.64.1",
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
