@@ -2,7 +2,7 @@
  * 管理画面のログインと権限（Data Access Layer）。ページと Server Action は DB をここ経由でだけ読み書きする。
  *
  * - DB はログインした利用者のセッションのクライアント（publishable key ＋ JWT）で読み書きし、RLS を本物の門にする
- *   （service role は RLS を迂回するので管理画面では使わない。引き継ぎ書 6章③）
+ *   （service role は RLS を迂回するので管理画面では使わない。引き継ぎ書4章の14・意思決定ログ12）
  * - 役割は JWT の app_metadata.role（'staff' 担当者 / 'viewer' 閲覧用）。RLS も同じ値を見る（supabase/migrations/20261011000000_admin_roles.sql）
  * - 画面の出し分け（閲覧用ではボタンを出さない）は見た目だけ。書き込みは Server Action が `getStaffDeps()` で役割を確かめ直し、RLS がもう一度止める
  * - Cache Components 有効下では cookies を読むコンポーネントは <Suspense> の内側に置くこと
