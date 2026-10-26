@@ -76,6 +76,8 @@ class FakeDb {
     conversations: [],
     messages: [],
     viewing_requests: [],
+    business_hours: [],
+    holidays: [],
   };
   /** 実行した書き込みの記録（'delete conversations where is_demo = true' など） */
   readonly ops: string[] = [];
@@ -249,6 +251,10 @@ const REAL_USER = 'U0123456789abcdef0123456789abcdef';
 /** 公開・非公開の物件（data/ の全件 ＋ 非公開 1 件）と、本物の利用者の会話、前日までのデモ会話（古い）を入れた偽の DB */
 function setupDb(options: { withProperties?: boolean } = {}): FakeDb {
   const db = new FakeDb();
+  // 営業時間はマイグレーションの初期値（10:00-19:00・水曜定休）
+  for (const weekday of [0, 1, 2, 3, 4, 5, 6]) {
+    db.tables.business_hours.push({ weekday, open_time: '10:00:00', close_time: '19:00:00', is_closed: weekday === 3 });
+  }
   if (options.withProperties !== false) {
     for (const p of properties) db.tables.properties.push({ ...propertyToRow(p), updated_at: NOW.toISOString() });
     db.tables.properties.push({ ...propertyToRow({ ...properties[0], id: 'ZZ-private', status: 'private' }), updated_at: NOW.toISOString() });
@@ -477,6 +483,26 @@ describe('refreshDemoData', () => {
     const newest = Math.max(...db.rows('messages').filter((r) => r.conversation_id !== 'conv-real').map((r) => Date.parse(String(r.created_at))));
     expect(newest).toBeLessThanOrEqual(next.getTime());
     expect(newest).toBeGreaterThan(NOW.getTime());
+  });
+
+  it('夜間の範囲・内見の候補日は DB の営業カレンダーで作る（管理画面で営業時間や休業日を変えても、デモが夜間・休日分に出る）', async () => {
+    const db = setupDb();
+    // 閉店を 21:00 に延ばし、火曜 10-13 を休業日にする
+    for (const row of db.tables.business_hours) row.close_time = '21:00:00';
+    db.tables.holidays.push({ date: '2026-10-13', name: '臨時休業' });
+
+    await refreshDemoData(db.client, NOW);
+
+    const lastClose = fromJst('2026-10-11', '21:00');
+    const overnight = db.rows('viewing_requests').filter((r) => r.conversation_id !== 'conv-real' && r.received_outside_hours === true);
+    expect(overnight.length).toBeGreaterThan(0);
+    for (const r of overnight) {
+      expect(Date.parse(String(r.created_at))).toBeGreaterThan(lastClose.getTime());
+      expect(Date.parse(String(r.created_at))).toBeLessThanOrEqual(NOW.getTime());
+    }
+    const candidates = db.rows('viewing_requests').filter((r) => r.conversation_id !== 'conv-real').flatMap((r) => r.candidate_times as string[]);
+    expect(candidates.length).toBeGreaterThan(0);
+    expect(candidates.some((t) => t.startsWith('2026-10-13'))).toBe(false);
   });
 
   it('dry-run: 何も書かず・消さず、件数だけ返す', async () => {
