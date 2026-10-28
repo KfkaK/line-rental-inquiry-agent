@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildMessageParams,
+  classifyLlmOutage,
   createAnthropicClient,
   createFakeLlmClient,
   LlmToolCallError,
@@ -8,6 +9,7 @@ import {
   type LlmCallRequest,
   type MessageLike,
 } from './client';
+import { anthropicApiError, CREDIT_TOO_LOW } from './fixtures';
 import { MODEL_FAST, MODEL_SMART, minCacheableTokens, supportsForcedToolChoice, supportsSampling } from './models';
 
 const TOOL = {
@@ -166,6 +168,27 @@ describe('createAnthropicClient', () => {
     const create = vi.fn().mockResolvedValue(message({ stop_reason: 'end_turn', content: [{ type: 'text' }] }));
     const client = createAnthropicClient({ sdk: { messages: { create }, beta: { messages: { create: vi.fn() } } } as never });
     await expect(client.callTool(request(MODEL_FAST))).rejects.toBeInstanceOf(LlmToolCallError);
+  });
+});
+
+describe('classifyLlmOutage', () => {
+  it('残高切れ: 400 の「credit balance is too low」と 402（billing_error）', () => {
+    expect(classifyLlmOutage(CREDIT_TOO_LOW())).toBe('credit');
+    expect(classifyLlmOutage(anthropicApiError(402, 'billing_error', 'There is an issue with your billing.'))).toBe('credit');
+  });
+
+  it('キーの無効・失効・権限なし: 401 と 403', () => {
+    expect(classifyLlmOutage(anthropicApiError(401, 'authentication_error', 'invalid x-api-key'))).toBe('auth');
+    expect(classifyLlmOutage(anthropicApiError(403, 'permission_error', 'not allowed'))).toBe('auth');
+  });
+
+  it('待てば直るもの・ほかの 400・API の外の例外は null', () => {
+    expect(classifyLlmOutage(anthropicApiError(429, 'rate_limit_error', 'rate limited'))).toBeNull();
+    expect(classifyLlmOutage(anthropicApiError(529, 'overloaded_error', 'Overloaded'))).toBeNull();
+    expect(classifyLlmOutage(anthropicApiError(500, 'api_error', 'internal'))).toBeNull();
+    expect(classifyLlmOutage(anthropicApiError(400, 'invalid_request_error', 'messages: roles must alternate'))).toBeNull();
+    expect(classifyLlmOutage(new LlmToolCallError('no tool', 'no_tool_use'))).toBeNull();
+    expect(classifyLlmOutage(new Error('credit balance is too low'))).toBeNull();
   });
 });
 

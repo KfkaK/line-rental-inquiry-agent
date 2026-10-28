@@ -6,7 +6,9 @@ import type { ExtractionResult, Property } from '@/domain/types';
 import { createMemoryRepositories } from '@/lib/db';
 import { createFakeMessenger } from '@/lib/line/messenger';
 import { buildPostbackData } from '@/lib/line/postback';
+import { anthropicApiError, CREDIT_TOO_LOW } from '@/lib/llm/fixtures';
 import { handleEvent, type AnswerOutput, type Deps, type ExtractInput, type StaffNotifier } from './handleEvent';
+import type { OpsNotifier } from './opsAlert';
 
 const USER = 'U-test-user';
 /** 火曜 23:30 JST（営業時間外） */
@@ -202,6 +204,17 @@ describe('handleEvent', () => {
     expect(textsOf(t.lastReply())[0]).toContain('混み合っています');
   });
 
+  it('1日の費用上限で止めたら運営者に知らせる（上限に届く前は知らせない）', async () => {
+    const t = setup({ dailyCostLimitUsd: 0.0015 });
+    const costLimitReached = vi.fn(async () => {});
+    t.deps.ops = { aiUnavailable: vi.fn(), costLimitReached, webhookFailed: vi.fn(), dailyJobFailed: vi.fn() };
+    await handleEvent(textEvent('1回目'), t.deps);
+    await handleEvent(textEvent('2回目'), t.deps);
+    expect(costLimitReached).not.toHaveBeenCalled();
+    await handleEvent(textEvent('3回目'), t.deps);
+    expect(costLimitReached).toHaveBeenCalledWith({ limitUsd: 0.0015, spentUsd: expect.closeTo(0.002, 6) });
+  });
+
   describe('乱用対策（セキュリティ点検 A4・A5・A8。意思決定ログ36）', () => {
     const more = () => postbackEvent(buildPostbackData({ action: 'more' }));
     const imageEvent = () =>
@@ -357,6 +370,67 @@ describe('handleEvent', () => {
     await handleEvent(textEvent('渋谷で9万まで'), t.deps);
     expect(textsOf(t.lastReply())[0]).toContain('混み合っています');
     expect((await t.conversation()).state).toBe('hearing');
+  });
+
+  describe('AI が止まったら運営者に知らせる（引き継ぎ書11章）', () => {
+    function withOps(t: ReturnType<typeof setup>): OpsNotifier {
+      const ops: OpsNotifier = {
+        aiUnavailable: vi.fn(async () => {}),
+        costLimitReached: vi.fn(async () => {}),
+        webhookFailed: vi.fn(async () => {}),
+        dailyJobFailed: vi.fn(async () => {}),
+      };
+      t.deps.ops = ops;
+      return ops;
+    }
+
+    it('条件抽出が残高切れ: 利用者には「混み合っています」、運営者には残高切れ', async () => {
+      const t = setup();
+      const ops = withOps(t);
+      t.deps.extract = async () => {
+        throw CREDIT_TOO_LOW();
+      };
+      await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+      expect(textsOf(t.lastReply())[0]).toContain('混み合っています');
+      expect(ops.aiUnavailable).toHaveBeenCalledWith({ outage: 'credit', source: 'webhook' });
+    });
+
+    it('回答生成がキーの失効: 引き継ぎ文を返してから、運営者にはキーの失効', async () => {
+      const t = setup({ extractions: [SEARCH, ex({ intent: 'propertyQuestion', targetPositions: [1] })] });
+      const ops = withOps(t);
+      t.answer.mockRejectedValueOnce(anthropicApiError(401, 'authentication_error', 'invalid x-api-key'));
+      await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+      await handleEvent(textEvent('1番目は駐輪場ある？'), t.deps);
+      expect(textsOf(t.lastReply())[0]).toContain('担当者が確認します');
+      expect(ops.aiUnavailable).toHaveBeenCalledTimes(1);
+      expect(ops.aiUnavailable).toHaveBeenCalledWith({ outage: 'auth', source: 'webhook' });
+    });
+
+    it('待てば直る失敗（429・過負荷）では知らせない', async () => {
+      const t = setup({ extractions: [SEARCH, ex({ intent: 'propertyQuestion', targetPositions: [1] })] });
+      const ops = withOps(t);
+      t.answer.mockRejectedValueOnce(anthropicApiError(529, 'overloaded_error', 'Overloaded'));
+      await handleEvent(textEvent('渋谷で9万まで'), t.deps);
+      await handleEvent(textEvent('1番目は駐輪場ある？'), t.deps);
+      t.deps.extract = async () => {
+        throw anthropicApiError(429, 'rate_limit_error', 'rate limited');
+      };
+      await handleEvent(textEvent('渋谷で8万まで'), t.deps);
+      expect(ops.aiUnavailable).not.toHaveBeenCalled();
+    });
+
+    it('通知が投げても利用者への返信は届く', async () => {
+      const t = setup();
+      const ops = withOps(t);
+      vi.mocked(ops.aiUnavailable).mockRejectedValueOnce(new Error('resend down'));
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      t.deps.extract = async () => {
+        throw CREDIT_TOO_LOW();
+      };
+      await expect(handleEvent(textEvent('渋谷で9万まで'), t.deps)).resolves.toBeUndefined();
+      expect(textsOf(t.lastReply())[0]).toContain('混み合っています');
+      error.mockRestore();
+    });
   });
 
   it('回答の一部がレコードに無い: 答えられた部分に続けて引き継ぎ文を返し、メモを残す', async () => {

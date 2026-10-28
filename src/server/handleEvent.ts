@@ -18,6 +18,8 @@ import { decideTurn, isUnstarted, type ButtonEvent, type ConversationSnapshot, t
 import type { ExtractionResult, ForbiddenTopic, Property, Slots } from '@/domain/types';
 import type { Conversation, Repositories, Verification } from '@/lib/db';
 import type { LineMessenger, LineMessage } from '@/lib/line/messenger';
+import { classifyLlmOutage } from '@/lib/llm/client';
+import { notifyOpsSafely, type OpsNotifier } from './opsAlert';
 import { parseButtonEvent, renderMessages, type RenderBlock } from './render';
 
 // ---------- 差し込む外部の処理 ----------
@@ -102,6 +104,11 @@ export interface Deps {
    * 省略は false（Deps を組み立てるほかの処理を壊さないよう必須にしない）
    */
   demoMode?: boolean;
+  /**
+   * 運営者への通知（残高切れ・キーの失効で AI が返事を作れないとき。src/server/opsAlert.ts）。
+   * 省略すると知らせない（評価のハーネスとテスト）。本番は src/server/deps.ts が間引きつきで入れる
+   */
+  ops?: OpsNotifier;
 }
 
 /** 入力中アニメーションの秒数（LLM の待ち時間の体感を下げる。DESIGN.md 4.4） */
@@ -192,16 +199,22 @@ export async function handleEvent(event: webhook.Event, deps: Deps): Promise<voi
     const turnsToday = await repos.messages.countExtractedTurnsSince(userId, today);
     const spent = await repos.messages.sumCostSince(today);
     await repos.messages.insert({ conversationId: conv.id, role: 'user', text: userText });
+    const overCostLimit = spent >= deps.dailyCostLimitUsd;
     const refusal =
       event.message.type === 'text' && Array.from(event.message.text).length > UTTERANCE_MAX_CHARS
         ? msg.tooLong(UTTERANCE_MAX_CHARS)
         : turnsToday >= DAILY_TURNS_PER_USER
           ? msg.dailyLimitReached()
-          : recent >= RATE_LIMIT_PER_MINUTE || spent >= deps.dailyCostLimitUsd
+          : recent >= RATE_LIMIT_PER_MINUTE || overCostLimit
             ? msg.rateLimited()
             : null;
     if (refusal) {
       await send(messenger, userId, replyToken, [{ type: 'text', text: refusal }]);
+      // 費用の上限は全員で1つなので、日付が変わるまで全員が止まる。運営者に知らせる（攻撃や連投で使い切られたかもしれない）
+      const ops = deps.ops;
+      if (overCostLimit && ops) {
+        await notifyOpsSafely('費用の上限', () => ops.costLimitReached({ limitUsd: deps.dailyCostLimitUsd, spentUsd: spent }));
+      }
       return;
     }
     await messenger.showLoading(userId, LOADING_SECONDS);
@@ -242,6 +255,7 @@ export async function handleEvent(event: webhook.Event, deps: Deps): Promise<voi
       // API の障害（認証・429・ネット）。状態は進めず、時間をおいて送ってもらう
       console.error('[handleEvent] 条件抽出に失敗しました', error instanceof Error ? error.message : error);
       await send(messenger, userId, replyToken, [{ type: 'text', text: msg.rateLimited() }]);
+      await alertIfAiUnavailable(deps, error);
       return;
     }
     turnEvent = { kind: 'text', text: userText, extraction: extraction.result };
@@ -267,6 +281,8 @@ export async function handleEvent(event: webhook.Event, deps: Deps): Promise<voi
   let answerCost = 0;
   let verification: Verification | null = null;
   let toolCalls: unknown = null;
+  /** 回答生成の失敗（返信を送った後で、残高切れ・キーの失効なら運営者に知らせる） */
+  let answerError: unknown = null;
   for (const block of decision.replies) {
     if (block.type !== 'answer') {
       blocks.push(block);
@@ -290,6 +306,7 @@ export async function handleEvent(event: webhook.Event, deps: Deps): Promise<voi
       console.error('[handleEvent] 回答生成に失敗しました', error instanceof Error ? error.message : error);
       blocks.push({ type: 'text', text: handOff(null) });
       verification = 'replaced';
+      answerError = error;
     }
   }
 
@@ -369,6 +386,7 @@ export async function handleEvent(event: webhook.Event, deps: Deps): Promise<voi
         ),
       );
     }
+    if (answerError !== null) notifications.push(alertIfAiUnavailable(deps, answerError));
     await Promise.all(notifications);
   }
 }
@@ -411,6 +429,14 @@ async function notifySafely(label: string, notify: () => Promise<void>): Promise
   } catch (error) {
     console.error(`[handleEvent] 担当者通知（${label}）に失敗しました`, error instanceof Error ? error.message : error);
   }
+}
+
+/** 残高切れ・キーの無効や失効なら運営者に知らせる。待てば直るエラー（429・5xx・時間切れ）は知らせない。間引きは deps.ops の実装 */
+async function alertIfAiUnavailable(deps: Deps, error: unknown): Promise<void> {
+  const outage = classifyLlmOutage(error);
+  const ops = deps.ops;
+  if (!outage || !ops) return;
+  await notifyOpsSafely('AI の停止', () => ops.aiUnavailable({ outage, source: 'webhook' }));
 }
 
 /** reply を試し、reply token が無い・失効していたら push に切り替える（DESIGN.md 6.1） */

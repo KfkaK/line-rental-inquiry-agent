@@ -10,8 +10,9 @@ import { createAnthropicClient, type Logger } from '@/lib/llm/client';
 import { applyWalkNoPreference } from '@/domain/normalize';
 import { withAlignedViewingWeekdays } from '@/domain/viewingDates';
 import { extractIntentAndSlots, toShownProperties, withKeywordSafetyNet } from '@/lib/llm/extract';
-import { createResendNotifier } from '@/lib/notify/resend';
+import { createResendNotifier, createResendOpsNotifier } from '@/lib/notify/resend';
 import type { Answerer, Deps, Extractor, StaffNotifier } from './handleEvent';
+import { logOpsNotifier, throttleOps, type OpsNotifier } from './opsAlert';
 
 /** DAILY_COST_LIMIT_USD が無いときの1日の API 費用上限（USD） */
 const DEFAULT_DAILY_COST_LIMIT_USD = 5;
@@ -115,16 +116,37 @@ export function createNotifier(): StaffNotifier {
   });
 }
 
+/**
+ * 運営者への通知（AI の停止・処理の失敗・毎朝のジョブの失敗）。宛先は OPS_NOTIFY_EMAIL、無ければ STAFF_NOTIFY_EMAIL
+ * （公開デモは同じ人。製品では Anthropic のキーと残高を持つ開発者にする。意思決定ログ41）。RESEND_API_KEY が無ければログだけ
+ */
+export function createOpsNotifier(): OpsNotifier {
+  const apiKey = optionalEnv('RESEND_API_KEY');
+  const to = optionalEnv('OPS_NOTIFY_EMAIL') ?? optionalEnv('STAFF_NOTIFY_EMAIL');
+  if (!apiKey || !to) return logOpsNotifier;
+  return createResendOpsNotifier({
+    apiKey,
+    to,
+    from: optionalEnv('NOTIFY_FROM_EMAIL') ?? DEFAULT_NOTIFY_FROM,
+    baseUrl: resolveBaseUrl(),
+  });
+}
+
+/** 同じ種類の運営者への通知の間隔（インスタンスごと）。残高切れの間、発話のたびにメールが出ないように。直らなければ毎朝の Cron でも届く */
+const OPS_ALERT_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
 export function createProductionDeps(): Deps {
   const limit = Number(optionalEnv('DAILY_COST_LIMIT_USD') ?? DEFAULT_DAILY_COST_LIMIT_USD);
+  const clock = () => new Date();
   return {
     repos: createSupabaseRepositories(),
     messenger: createLineMessenger(),
     extract: createExtractor(),
     answer: createAnswerer(),
     notifier: createNotifier(),
-    clock: () => new Date(),
+    clock,
     dailyCostLimitUsd: Number.isFinite(limit) ? limit : DEFAULT_DAILY_COST_LIMIT_USD,
     demoMode: isDemoMode(),
+    ops: throttleOps(createOpsNotifier(), { intervalMs: OPS_ALERT_INTERVAL_MS, clock }),
   };
 }

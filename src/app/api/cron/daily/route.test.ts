@@ -12,6 +12,18 @@ vi.mock('@/server/demoSeed', () => ({
 const createServiceClient = vi.fn<() => unknown>();
 vi.mock('@/lib/db', () => ({ createServiceClient: () => createServiceClient() }));
 
+const checkAiAvailability = vi.fn<() => Promise<AiAvailability>>();
+vi.mock('@/lib/llm/health', () => ({ checkAiAvailability: () => checkAiAvailability() }));
+
+const ops = {
+  aiUnavailable: vi.fn(async () => {}),
+  costLimitReached: vi.fn(async () => {}),
+  webhookFailed: vi.fn(async () => {}),
+  dailyJobFailed: vi.fn(async () => {}),
+};
+vi.mock('@/server/deps', () => ({ createOpsNotifier: () => ops }));
+
+import type { AiAvailability } from '@/lib/llm/health';
 import { GET } from './route';
 
 const SECRET = 'route-test-cron-secret';
@@ -47,6 +59,9 @@ describe('GET /api/cron/daily', () => {
     runDailyJob.mockResolvedValue(OK_RESULT);
     createServiceClient.mockReset();
     createServiceClient.mockReturnValue(CLIENT);
+    checkAiAvailability.mockReset();
+    checkAiAvailability.mockResolvedValue({ ok: true });
+    for (const fn of Object.values(ops)) fn.mockClear();
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
@@ -91,8 +106,11 @@ describe('GET /api/cron/daily', () => {
   it('正しい Bearer なら日次の処理を走らせ、結果（件数）を 200 で返す。DEMO_MODE が無ければデモの作り直しはしない指定', async () => {
     const response = await GET(makeRequest(`Bearer ${SECRET}`));
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual(OK_RESULT);
+    await expect(response.json()).resolves.toEqual({ ...OK_RESULT, ai: 'ok' });
     expect(runDailyJob).toHaveBeenCalledTimes(1);
+    expect(checkAiAvailability).toHaveBeenCalledTimes(1);
+    expect(ops.dailyJobFailed).not.toHaveBeenCalled();
+    expect(ops.aiUnavailable).not.toHaveBeenCalled();
     const [client, now, options] = runDailyJob.mock.calls[0];
     expect(client).toBe(CLIENT);
     expect(now).toBeInstanceOf(Date);
@@ -136,11 +154,44 @@ describe('GET /api/cron/daily', () => {
     expect(logged).not.toContain('viewer@example.com');
   });
 
-  it('段階が失敗していたら 500（結果の本文は返す）', async () => {
-    runDailyJob.mockResolvedValue({ ...OK_RESULT, ok: false, purge: { status: 'error', message: 'function does not exist' } });
+  it('段階が失敗していたら 500（結果の本文は返す）で、失敗した段の名前だけを運営者に知らせる', async () => {
+    runDailyJob.mockResolvedValue({
+      ...OK_RESULT,
+      ok: false,
+      demo: { status: 'error', message: 'insert failed' },
+      purge: { status: 'error', message: 'function does not exist' },
+    });
     const response = await GET(makeRequest(`Bearer ${SECRET}`));
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toMatchObject({ ok: false, purge: { status: 'error' } });
+    expect(ops.dailyJobFailed).toHaveBeenCalledWith({ steps: ['demo', 'purge'] });
+  });
+
+  it('Claude が残高切れ・キーの失効なら 500 にして運営者に知らせる', async () => {
+    for (const outage of ['credit', 'auth'] as const) {
+      checkAiAvailability.mockResolvedValueOnce({ ok: false, outage, detail: 'status=400 type=invalid_request_error' });
+      const response = await GET(makeRequest(`Bearer ${SECRET}`));
+      expect(response.status).toBe(500);
+      await expect(response.json()).resolves.toMatchObject({ ok: true, ai: outage });
+      expect(ops.aiUnavailable).toHaveBeenLastCalledWith({ outage, source: 'cron' });
+    }
+    expect(ops.dailyJobFailed).not.toHaveBeenCalled();
+  });
+
+  it('Claude の一時的な失敗（429・5xx・時間切れ）はログだけで 200（運営者には知らせない）', async () => {
+    checkAiAvailability.mockResolvedValueOnce({ ok: false, outage: null, detail: 'status=529 type=overloaded_error' });
+    const response = await GET(makeRequest(`Bearer ${SECRET}`));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ ai: 'unavailable' });
+    expect(ops.aiUnavailable).not.toHaveBeenCalled();
+    expect(vi.mocked(console.error).mock.calls.flat().join('\n')).toContain('Claude を呼べません');
+  });
+
+  it('運営者への通知が投げても、応答は返す', async () => {
+    runDailyJob.mockResolvedValue({ ...OK_RESULT, ok: false, purge: { status: 'error', message: 'x' } });
+    ops.dailyJobFailed.mockRejectedValueOnce(new Error('resend down'));
+    const response = await GET(makeRequest(`Bearer ${SECRET}`));
+    expect(response.status).toBe(500);
   });
 
   it('vercel.json の crons がこのルートを1日1回（Hobby の上限）、JST の朝（UTC 21 時）に呼ぶ', () => {
@@ -160,5 +211,6 @@ describe('GET /api/cron/daily', () => {
     expect(text).not.toContain('SUPABASE_URL');
     expect(text).not.toContain(SECRET);
     expect(runDailyJob).not.toHaveBeenCalled();
+    expect(ops.dailyJobFailed).toHaveBeenCalledWith({ steps: ['setup'] });
   });
 });

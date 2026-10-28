@@ -15,6 +15,8 @@ export const ENV_NAMES = [
   'RESEND_API_KEY',
   /** 担当者通知メールの宛先。RESEND_API_KEY と両方あるときだけメールを送る（無ければログだけ） */
   'STAFF_NOTIFY_EMAIL',
+  /** 運営者への通知（AI の停止・処理の失敗・毎朝のジョブの失敗）の宛先。省略時は STAFF_NOTIFY_EMAIL。製品では Anthropic のキーを持つ開発者にする */
+  'OPS_NOTIFY_EMAIL',
   /** 担当者通知メールの差出人。省略時は Resend の検証用アドレス */
   'NOTIFY_FROM_EMAIL',
   /** 通知メールに載せる管理画面の URL の起点（例: https://line-rental-agent.vercel.app）。省略時は Vercel の本番 URL */
