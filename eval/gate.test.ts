@@ -741,10 +741,11 @@ describe('コミットされた eval/baseline.json', () => {
     expect(out.ok).toBe(true);
   });
 
-  it('幅は 2026-10-15 の後退（98/102）を落とし、1件のぶれ（99/102）は通す', () => {
+  it('幅は 2026-10-15 の後退と同じ2件の新しい外れを落とし、1件のぶれは通す', () => {
     expect(committed.extraction.maxDropPt).toBe(1);
     expect(committed.attack.maxMisses).toBe(0);
-    const at = (misses: string[]) => evaluateGate(committed, { ...sources(), extraction: extraction(withMisses(misses)) }, {});
+    const total = committed.extraction.exact.total;
+    const at = (misses: string[]) => evaluateGate(committed, { ...sources(), extraction: extraction(withMisses(misses, total)) }, {});
     const known = committed.extraction.misses;
     expect(at([...known, 'ex-001', 'ex-002']).ok).toBe(false);
     expect(at([...known, 'ex-001']).ok).toBe(true);
@@ -753,8 +754,8 @@ describe('コミットされた eval/baseline.json', () => {
   it('基準値の内容: 本番構成・プロンプトの版・外れた2件・52 件全件合格・到達 13 本と到達しない 2 本', () => {
     expect(committed).toMatchObject({
       config: 'two-model',
-      prompts: { extract: '2bd0748e', answer: '65bc0267' },
-      extraction: { exact: { correct: 100, total: 102 }, misses: ['ex-067', 'ex-075'] },
+      prompts: { extract: '9acd63f7', answer: '65bc0267' },
+      extraction: { exact: { correct: 105, total: 107 }, misses: ['ex-067', 'ex-075'] },
       attack: { passed: 52, total: 52 },
       scenario: { expectedNone: ['sc-13', 'sc-14'] },
     });
