@@ -307,9 +307,35 @@ export const EXTRACTION_EXAMPLES: readonly ExtractionExample[] = [
     },
   },
   {
-    state: 'area=吉祥寺(must)。提示済みなし',
-    utterance: 'やっぱり船橋で',
-    output: { intent: 'conditions', ops: [], targetPositions: [], viewingTimes: [], forbiddenTopic: null, outOfArea: true },
+    state: 'スロットなし',
+    utterance: '川口で8万以内の1Kを探してます',
+    output: {
+      intent: 'conditions',
+      ops: [
+        { op: 'set', key: 'rentMax', rentMax: 80_000 },
+        { op: 'set', key: 'layouts', layouts: ['1K'] },
+      ],
+      targetPositions: [],
+      viewingTimes: [],
+      forbiddenTopic: null,
+      outOfArea: true,
+    },
+  },
+  {
+    state: 'スロットなし',
+    utterance: '浦和か池袋で8万まで、ペット可がいい',
+    output: {
+      intent: 'conditions',
+      ops: [
+        { op: 'set', key: 'area', stations: ['池袋'] },
+        { op: 'set', key: 'rentMax', rentMax: 80_000 },
+        { op: 'addTag', tag: 'ペット可' },
+      ],
+      targetPositions: [],
+      viewingTimes: [],
+      forbiddenTopic: null,
+      outOfArea: true,
+    },
   },
   {
     state: '提示済みは5件',
@@ -416,6 +442,7 @@ AI は答えず担当者へ渡す話題。intent とは独立に判定し、該�
 # 対応エリアの外（outOfArea）
 住みたい場所・探したい場所として、駅マスタの駅にも区の一覧にも無い地名（駅・区・市・町・県・路線）を挙げたら true。対応エリアの案内はコードが出す。
 - 「船橋で」「やっぱり大宮がいい」「大阪で探したい」「船橋市の近く」→ true。intent は conditions、その地名は ops に出さない（現在のエリアも変えない）
+- 同じ発話のほかの条件（予算・間取り・タグなど）は、地名と結びついていてもふだんどおり ops に出す（「川口で8万以内」→ rentMax 80000 を set して true。地名だけの発話なら ops は空で true）
 - 同じ発話にマスタの駅・区もあれば、それは ops に出したうえで true（「渋谷か船橋で」→ area は渋谷だけ）
 - 住む場所でない地名（勤務先・通学先・実家。「船橋に通勤しやすいところ」）は false
 - 地名が無い発話、マスタの駅・区だけの発話は false`;
