@@ -334,6 +334,21 @@ describe('scoreExtractionCase', () => {
     expect(scoreExtractionCase(none, result()).forbiddenOk).toBe(true);
   });
 
+  it('対応エリアの外は、省略を false として比べ、外れたら exact も false', () => {
+    const outside = makeCase({ expected: { intent: 'conditions', outOfArea: true } });
+    expect(scoreExtractionCase(outside, result({ outOfArea: true })).exact).toBe(true);
+    expect(scoreExtractionCase(outside, result()).outOfAreaOk).toBe(false);
+    expect(scoreExtractionCase(outside, result()).exact).toBe(false);
+    const inside = makeCase({ expected: { intent: 'conditions' } });
+    expect(scoreExtractionCase(inside, result()).outOfAreaOk).toBe(true);
+    expect(scoreExtractionCase(inside, result({ outOfArea: true })).outOfAreaOk).toBe(false);
+    // 母数は正解か実際のどちらかが申告した発話だけ
+    const cases = [outside, inside, inside];
+    const actuals = [result({ outOfArea: true }), result({ outOfArea: true }), result()];
+    const summary = summarizeExtraction(cases, cases.map((c, i) => scoreExtractionCase(c, actuals[i])), actuals);
+    expect(summary.outOfArea).toEqual({ correct: 1, total: 2, rate: 0.5 });
+  });
+
   it('exact は、意図・スロット・表示番号・日時・禁止トピックのすべてが一致したときだけ true', () => {
     const c = makeCase({
       expected: {

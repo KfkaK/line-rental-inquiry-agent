@@ -4,6 +4,7 @@
  * - ex-033〜ex-080: 単発発話の拡充（合わせて 80 件。優先度の手がかりを含むものが 40 件以上）
  * - ex-081〜ex-100: トレードオフの質問への答え 20 件（category 'tradeoff'）
  * - ex-101〜ex-102: 「駅から遠くてもいい」を徒歩の上限の値（nice）に写す（2026-10-15。意思決定ログ26。README の数字はこの2件を足す前の 100 件で測ったもの）
+ * - ex-103〜ex-107: 対応エリアの外の地名（outOfArea。2026-10-28。README の数字はこの5件を足す前の 102 件で測ったもの）
  * 正解の付け方は eval/README.md。正解は本番の正規化（canonicalizeOps）と駅マスタで eval/datasets/datasets.test.ts が検査する。
  */
 import { WALK_NO_PREFERENCE_MIN } from '@/domain/rules';
@@ -1590,5 +1591,62 @@ export const EXTRACTION_CASES: ExtractionCase[] = [
       ops: [{ op: 'set', key: 'walkMax', value: WALK_NO_PREFERENCE_MIN, priority: 'nice' }],
     },
     note: '既に徒歩10分の want があっても、値を上限に変えて nice にする（setPriority だけだと「徒歩10分以内」が残る）',
+  },
+
+  // ---------- 対応エリアの外の地名（2026-10-28 に追加。実機で「やっぱり船橋で」が無視され、前のエリアで探していた） ----------
+  {
+    id: 'ex-103',
+    category: 'change',
+    priorityCue: false,
+    utterance: 'やっぱり船橋で',
+    slots: { area: { value: { stations: ['吉祥寺'], wards: [] }, priority: 'must' }, tags: [] },
+    expected: { intent: 'conditions', ops: [], outOfArea: true },
+    note: '実機の発話そのもの。船橋は駅マスタに無いので ops に出さず、現在のエリア（吉祥寺）も変えない',
+  },
+  {
+    id: 'ex-104',
+    category: 'change',
+    priorityCue: false,
+    utterance: '船橋市の近くだよ',
+    slots: base(['吉祥寺'], 100000),
+    expected: { intent: 'conditions', alsoAcceptIntents: ['offTopic'], ops: [], outOfArea: true },
+    note: '実機の発話そのもの（言い直し）。条件の言い直しなので conditions だが、条件が何も取れないので offTopic も認める（会話エンジンはどちらでも対応エリアを案内する）',
+  },
+  {
+    id: 'ex-105',
+    category: 'basic',
+    priorityCue: false,
+    utterance: '大宮で7万以内の部屋ありますか',
+    expected: { intent: 'conditions', ops: [{ op: 'set', key: 'rentMax', value: 70000 }], outOfArea: true },
+    note: '予算は当て、大宮は ops に出さない',
+  },
+  {
+    id: 'ex-106',
+    category: 'basic',
+    priorityCue: false,
+    utterance: '渋谷か船橋で9万まで',
+    expected: {
+      intent: 'conditions',
+      ops: [
+        { op: 'set', key: 'area', value: { stations: ['渋谷'], wards: [] } },
+        { op: 'set', key: 'rentMax', value: 90000 },
+      ],
+      outOfArea: true,
+    },
+    note: 'マスタの駅（渋谷）は ops に出したうえで、船橋があるので true',
+  },
+  {
+    id: 'ex-107',
+    category: 'basic',
+    priorityCue: false,
+    utterance: '船橋に通勤するので、新宿あたりで8万まで',
+    expected: {
+      intent: 'conditions',
+      ops: [
+        { op: 'set', key: 'area', value: { stations: ['新宿'], wards: [] } },
+        { op: 'set', key: 'rentMax', value: 80000 },
+      ],
+    },
+    note: '船橋は通勤先で、住む場所ではないので outOfArea は false',
   },
 ];

@@ -197,9 +197,11 @@ export async function handleEvent(event: webhook.Event, deps: Deps): Promise<voi
         ? msg.tooLong(UTTERANCE_MAX_CHARS)
         : turnsToday >= DAILY_TURNS_PER_USER
           ? msg.dailyLimitReached()
-          : recent >= RATE_LIMIT_PER_MINUTE || spent >= deps.dailyCostLimitUsd
-            ? msg.rateLimited()
-            : null;
+          : recent >= RATE_LIMIT_PER_MINUTE
+            ? msg.tooManyMessages()
+            : spent >= deps.dailyCostLimitUsd
+              ? msg.rateLimited()
+              : null;
     if (refusal) {
       await send(messenger, userId, replyToken, [{ type: 'text', text: refusal }]);
       return;
@@ -209,7 +211,7 @@ export async function handleEvent(event: webhook.Event, deps: Deps): Promise<voi
     // LLM を呼ばない操作も、連打で DB と送信を埋めないよう緩く止める（保存はこのあと。数えるのはそれまでの発言）
     const recentEvents = await repos.messages.countUserMessagesSince(conv.id, new Date(startedAt.getTime() - MINUTE_MS));
     if (recentEvents >= EVENT_RATE_LIMIT_PER_MINUTE) {
-      await send(messenger, userId, replyToken, [{ type: 'text', text: msg.rateLimited() }]);
+      await send(messenger, userId, replyToken, [{ type: 'text', text: msg.tooManyMessages() }]);
       return;
     }
   }

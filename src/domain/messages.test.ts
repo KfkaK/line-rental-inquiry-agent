@@ -1,5 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { DEMO_GREETING_NOTE, DEMO_NO_CONTACT_NOTE, greeting, handoff, viewingAccepted } from './messages';
+import { askFor, coverageLabel, DEMO_GREETING_NOTE, DEMO_NO_CONTACT_NOTE, greeting, handoff, outOfArea, rateLimited, tooManyMessages, viewingAccepted } from './messages';
+
+describe('対応エリアの案内', () => {
+  it('対応エリアは駅マスタの路線から作る（環状線は区間なし）', () => {
+    expect(coverageLabel()).toBe('山手線・中央線（東京〜三鷹）・東急東横線（渋谷〜日吉）');
+  });
+
+  it('エリアを聞くときに対応エリアを添える', () => {
+    expect(askFor('area')).toContain(`ご案内できるのは、${coverageLabel()}の駅の近くの物件です。`);
+  });
+
+  it('エリア外の案内は地名を写さず、ほかの駅があるときは探す旨、無いときは言い直しを頼む', () => {
+    expect(outOfArea(false)).toBe(
+      `ご希望の場所は、対応エリアの外のようです。\nご案内できるのは、${coverageLabel()}の駅の近くの物件です。\nこの中で、ご希望の駅を教えてください。`,
+    );
+    expect(outOfArea(true)).toBe(`対応エリアの外の場所は除いて、ご案内できる駅で探します。\nご案内できるのは、${coverageLabel()}の駅の近くの物件です。`);
+  });
+
+  it('連投で止めたときは混雑と言わない（実機で「混み合っています」と出て誤解を招いた）', () => {
+    expect(tooManyMessages()).not.toContain('混み合って');
+    expect(rateLimited()).toContain('混み合って');
+  });
+});
 
 describe('定型文（公開デモ）', () => {
   it('デモの文言は決めた言い回しのまま', () => {
