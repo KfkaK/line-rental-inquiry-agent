@@ -20,11 +20,13 @@
 - **意思決定ログの番号は、コミット直前に `git fetch` して origin/main と自分のブランチの最大＋1 を振る**（並行セッションで衝突しやすい）
 - コミットは機能単位。docs だけの変更は docs だけでコミットする。docs は UTF-8・LF・BOM なし。長いコミットメッセージはファイルに書いて `git commit -F`
 - main へ直接 push しない。作業ブランチ → PR。**PR をマージした後に同じブランチへ積んだコミットは main に入らない**ので、続きは新しい PR にする。PR を作ったら Auto-fix をオンにする
-- **PR はマージまでこちらでやる**（2026-10-07 ユーザー指示）。最新コミットの CI 通過を確かめてマージコミット（`gh pr merge N --merge`）でマージし、main を pull して作業ブランチを消す。GitHub の auto-merge はこのリポジトリでは使えず、Auto-fix は失敗しか知らせないので、コードを含む PR は作業の区切りで `get_status`（または `gh pr view N --json statusCheckRollup`）を1回だけ見て、最新コミットで通っていればマージする（ループで待たない）。CI は GitHub Actions の `check` を見る（PR の「Vercel」Preview はコミットの作者が Vercel チーム外のため必ず失敗するが、本番には影響しない。引き継ぎ書 8章）。docs だけの PR は CI を待たずにマージしてよい
+- **PR はマージまでこちらでやる**（2026-10-07 ユーザー指示）。最新コミットの CI 通過を確かめてマージコミット（`gh pr merge N --merge`）でマージし、main を pull して作業ブランチを消す。GitHub の auto-merge はこのリポジトリでは使えず、Auto-fix は失敗しか知らせないので、コードを含む PR は作業の区切りで `get_status`（または `gh pr view N --json statusCheckRollup`）を1回だけ見て、最新コミットで通っていればマージする（ループで待たない）。CI は GitHub Actions の `check` を見る。実 API の評価（`Eval`）が走った PR はそれも通っていること（PR の「Vercel」Preview はコミットの作者が Vercel チーム外のため必ず失敗するが、本番には影響しない。引き継ぎ書 8章）。docs だけの PR は CI を待たずにマージしてよい
 - 大きな実装はサブエージェントに委任し、不変条件（引き継ぎ書4章）と検証条件（typecheck ＋ テスト全通過）をプロンプトに明記する。並列にするときはファイル所有権で分け、「他所の tsc エラーは報告のみ・直さない」と書く
 - レビューは差分1本（`/code-review`）。重いエージェントは利用上限の間際に投げない
 - ユーザーの判断待ち（引き継ぎ書7章）に行を足すときは、`fable-advisor` と壁打ちした推奨（推奨／理由／その案が生む穴と塞ぎ方／規模）を付ける。返ってきた根拠は自分でコードを見て確かめてから書く
 - テストが落ちたら、テストより先に実装を疑う
+- **評価**: 第三者評価は定期的に回さない。S 級の領域（権限・お金・個人情報・外部サービス）を触った提出候補でだけ回し、それ以外は差分レビュー。S 級を直したら、事例のテストに加えて種類の不変条件（引き継ぎ書4章）を広く当てるテストを足す。機械で数えられる規則は LLM で採点しない。プロンプト・モデル・検証のコードを触った PR は CI が実 API の評価を回し、基準値から落ちたら落ちる（基準値を下げるときは理由を意思決定ログに書く。意思決定ログ43）
+- **公開前に**: 引き継ぎ書11章「止まったら困るものと監視」を埋める（気づく手段の無い行を残さない）。`/security-review` を1回
 
 ## ハーネスで止めていること（意思決定ログ20）
 
@@ -39,6 +41,7 @@
 - `npm run check:design-tokens`（同上）: `docs/visual-design.md` の colors が `theme.ts` の light・dark の写しになっているか（値の違い・片方にしか無い色）を落とす
 - axe-core（`e2e/a11y.spec.ts`・CI の `a11y` ワークフロー）: 本番ビルドの `/`・`/privacy`・`/terms`・`/admin/login` を、ライトとダークで WCAG 2.x の A・AA の規則で調べる。手元では `npm run build && npm run test:a11y`（初回は `npx playwright install chromium`）
 - `prebuild` の `scripts/check-legal.ts`（`npm run build` の前に必ず走る）: 製品の本番ビルド（Vercel の Production で `DEMO_MODE` が 1 でない）で、`src/app/_legal/operator.ts` の発注者が埋める欄に印が残っているか、ポリシーの文面がデモ版のままなら落とす。公開デモの本番・Preview・CI・手元は素通り（意思決定ログ41）
+- 実 API の評価（`.github/workflows/eval.yml`）: AI のふるまいを変えうるファイル（`paths`。LLM のコードと、それが読み込む `src/domain` のファイルなど）を触った PR で自動に回り、基準値（`eval/baseline.json`）より落ちたら落ちる（`npm run eval:gate`）。週1回も回り、落ちたら Issue。`paths` と LLM のコードの import の食い違いは `src/lib/llm/evalTrigger.test.ts` が落とす。基準値は人が意図して更新する（`eval/README.md`。意思決定ログ43）
 
 ## モデル分担
 
