@@ -17,6 +17,7 @@
     "demo:seed": "tsx scripts/seed-demo.ts",
     "eval": "tsx scripts/eval.ts",
     "eval:compare": "tsx scripts/eval-compare.ts",
+    "eval:gate": "tsx scripts/eval-gate.ts",
     "check:contrast": "node scripts/check-contrast.js",
     "check:docs": "node scripts/check-docs.js",
     "check": "npm run typecheck && npm run lint && npm test && npm run check:contrast && npm run check:docs && npm run design:lint && npm run check:design-tokens",
