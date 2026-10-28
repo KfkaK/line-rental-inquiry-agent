@@ -1,11 +1,42 @@
 name: Eval
 
-# 実 API（Anthropic）で評価セットを回す。有料なので手動実行（workflow_dispatch）だけ。
-# 使い方・指標の定義・費用の目安は eval/README.md。
+# 実 API（Anthropic）で評価セットを回す（有料。本番構成の全セットで約 $0.56）。使い方・指標の定義・費用の目安は eval/README.md。
+#   - pull_request: プロンプト・モデルの設定・根拠検証など、AI のふるまいを変えうるファイルを触った PR で自動に回し、
+#     基準値（eval/baseline.json）より落ちていたら落とす（npm run eval:gate）。どのファイルで回すかは下の paths。
+#   - schedule: 週1回（月曜 9 時 JST）同じものを回す（モデル側の変化と、残高切れ・キーの失効を拾う）。落ちたときだけ Issue を立てる
+#   - workflow_dispatch: 構成を比べるなど、手で回す実験。基準値とは比べない
 # 事前に、リポジトリのシークレット ANTHROPIC_API_KEY を設定しておく（Settings → Secrets and variables → Actions）。
-# 結果の JSON は eval/results/ に出て、アーティファクト「eval-results」として残る。基準にする回だけをリポジトリにコミットする。
+# 結果の JSON はアーティファクト「eval-results」として残る。基準にする回だけをリポジトリの eval/results/ にコミットする。
 
 on:
+  pull_request:
+    # LLM の呼び出しのコードと、それが読み込む src/domain のファイル（プロンプトに埋め込む駅・定数・文言、出力の後処理と根拠検証）、
+    # LLM に渡す入力を組み立てる所、回答の根拠の物件データ、評価そのもの。会話エンジン（turn.ts）などの決まった手順のコードは、
+    # テストと CI の偽物の評価（ci.yml の --fake）で見る。src/lib/llm/evalTrigger.test.ts が、LLM のコードの import との食い違いを落とす
+    paths:
+      - 'src/lib/llm/**'
+      - 'src/domain/businessHours.ts'
+      - 'src/domain/forbidden.ts'
+      - 'src/domain/labels.ts'
+      - 'src/domain/normalize.ts'
+      - 'src/domain/rules.ts'
+      - 'src/domain/search.ts'
+      - 'src/domain/slots.ts'
+      - 'src/domain/stations.ts'
+      - 'src/domain/types.ts'
+      - 'src/domain/verify.ts'
+      - 'src/domain/viewingDates.ts'
+      - 'src/server/deps.ts'
+      - 'src/server/handleEvent.ts'
+      - 'data/**'
+      - 'eval/**'
+      - '!eval/README.md'
+      - '!eval/results/**'
+      - 'scripts/eval.ts'
+      - 'scripts/eval-gate.ts'
+      - '.github/workflows/eval.yml'
+  schedule:
+    - cron: '0 0 * * 1'
   workflow_dispatch:
     inputs:
       set:
@@ -33,19 +64,29 @@ on:
         type: boolean
         default: false
 
-# 同時に2つ回さない（費用の上限が通算にならなくなるため）。待っている実行は取り消さない
+# PR は新しいコミットが来たら前の回を取り消す（古いコミットの結果は要らない。残りの費用を使わない）。
+# それ以外（週1回・手動）は待っている実行を取り消さない
 concurrency:
-  group: eval
-  cancel-in-progress: false
+  group: eval-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
   eval:
+    # 公開リポジトリ（ミラー。キーも Issue も無い）では回さない
+    if: github.repository == 'KfkaK/line-rental-agent'
     runs-on: ubuntu-latest
     # 全 3 セットで 30 分前後（Sonnet の 1 モデル構成はもう少し）。ハングしたときに課金が続かないよう上限を付ける
     timeout-minutes: 60
+    permissions:
+      contents: read
+      # 週1回の評価が落ちたときに Issue を立てる
+      issues: write
+    env:
+      # 自動の回（PR・週1回）は本番構成の全セットを $1 の上限で回し、基準値と比べる
+      GATED: ${{ github.event_name != 'workflow_dispatch' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -68,29 +109,52 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           # 入力はシェルに直接埋め込まず、環境変数で渡す（引数の誤りはランナーが検出して、使い方つきで失敗する）
-          EVAL_SET: ${{ inputs.set }}
-          EVAL_CONFIG: ${{ inputs.config }}
+          EVAL_SET: ${{ inputs.set || 'all' }}
+          EVAL_CONFIG: ${{ inputs.config || 'two-model' }}
           EVAL_LIMIT: ${{ inputs.limit }}
-          EVAL_MAX_COST: ${{ inputs.max_cost }}
+          EVAL_MAX_COST: ${{ inputs.max_cost || '1' }}
           EVAL_NO_DICTIONARY: ${{ inputs.no_dictionary }}
         run: |
-          args=("--set=${EVAL_SET}" "--config=${EVAL_CONFIG}" "--max-cost=${EVAL_MAX_COST}")
+          args=("--set=${EVAL_SET}" "--config=${EVAL_CONFIG}" "--max-cost=${EVAL_MAX_COST}" "--out=${RUNNER_TEMP}/eval-results")
           if [ -n "${EVAL_LIMIT}" ]; then args+=("--limit=${EVAL_LIMIT}"); fi
           if [ "${EVAL_NO_DICTIONARY}" = "true" ]; then args+=("--no-dictionary"); fi
           echo "npm run eval -- ${args[*]}"
           # 進捗は標準エラー（ログに出る）、レポート（Markdown）は標準出力
           npm run --silent eval -- "${args[@]}" > "$RUNNER_TEMP/eval-report.md"
 
-      # レポートをジョブの要約に載せる（評価が失敗しても、出ている分は載せる）
+      # 基準値と比べる（自動の回だけ）。落ちていたらここでジョブが落ちる
+      - name: 基準値と比べる
+        if: env.GATED == 'true'
+        run: npm run --silent eval:gate -- --results="$RUNNER_TEMP/eval-results" > "$RUNNER_TEMP/gate-report.md"
+
+      # レポートをジョブの要約に載せる（評価や比較が失敗しても、出ている分は載せる）
       - name: レポートを要約に載せる
         if: always()
         run: |
-          if [ -f "$RUNNER_TEMP/eval-report.md" ]; then cat "$RUNNER_TEMP/eval-report.md" >> "$GITHUB_STEP_SUMMARY"; fi
+          for f in gate-report.md eval-report.md; do
+            if [ -f "$RUNNER_TEMP/$f" ]; then cat "$RUNNER_TEMP/$f" >> "$GITHUB_STEP_SUMMARY"; echo >> "$GITHUB_STEP_SUMMARY"; fi
+          done
 
       - name: 結果の JSON を残す
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: eval-results
-          path: eval/results/
+          path: ${{ runner.temp }}/eval-results/
           if-no-files-found: warn
+
+      # 週1回の評価が落ちたときだけ知らせる（緑の週は何も出さない）。開いている同じ題の Issue があればコメントを足す
+      - name: 週1回の評価が落ちたら Issue を立てる
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="週1回の評価が落ちました"
+          body="$(printf '週1回の実 API の評価（本番構成）が落ちました。\n\n- 実行: %s\n- 基準値より落ちたか、評価が最後まで回らなかった（API エラー・費用の上限・キーの未設定）かは、実行の要約を見てください\n- API エラーなら、Anthropic の残高とキーの期限を確かめる（引き継ぎ書11章）\n' "$RUN_URL")"
+          number="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title ${title}" --json number --jq '.[0].number // empty')"
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+          fi

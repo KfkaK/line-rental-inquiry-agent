@@ -65,6 +65,24 @@ export class LlmToolCallError extends Error {
   }
 }
 
+/**
+ * 運営者が手を打つまで直らない API のエラー。credit: 前払いクレジットの残高切れ / auth: API キーの無効・失効・権限なし。
+ * 利用者には「混み合っています」としか見えないので、運営者に知らせる（引き継ぎ書11章）
+ */
+export type LlmOutage = 'credit' | 'auth';
+
+/**
+ * エラーが LlmOutage か。429・5xx・時間切れなど、待てば直るものは null。
+ * 残高切れは 402（billing_error）のほか、400（invalid_request_error）で「credit balance is too low」が返る（2026-10-10 に実際に出た形。引き継ぎ書8章）
+ */
+export function classifyLlmOutage(error: unknown): LlmOutage | null {
+  if (!(error instanceof Anthropic.APIError)) return null;
+  if (error.status === 402 || error.type === 'billing_error') return 'credit';
+  if (error.status === 400 && /credit balance/i.test(error.message)) return 'credit';
+  if (error.status === 401 || error.status === 403) return 'auth';
+  return null;
+}
+
 // ---------- リクエストの組み立て（純関数。テストしやすいよう分けている） ----------
 
 const DEFAULT_MAX_TOKENS = 1024;

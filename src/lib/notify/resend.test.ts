@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildHandoffEmail, buildPausedReplyEmail, createResendNotifier } from './resend';
+import {
+  buildAiUnavailableEmail,
+  buildCostLimitEmail,
+  buildDailyJobFailedEmail,
+  buildHandoffEmail,
+  buildPausedReplyEmail,
+  buildWebhookFailedEmail,
+  createResendNotifier,
+  createResendOpsNotifier,
+} from './resend';
 
 const API_KEY = 're_test_secret';
 const TO = 'staff@example.com';
@@ -265,5 +274,74 @@ describe('個人情報とログ', () => {
     await t.notifier.viewingRequested(viewing);
     await t.notifier.handoffRequested(handoff);
     expect(error).not.toHaveBeenCalled();
+  });
+});
+
+describe('運営者への通知（createResendOpsNotifier）', () => {
+  function setupOps(response?: () => Response) {
+    const calls: Captured[] = [];
+    const fakeFetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init ?? {}, body: JSON.parse(String(init?.body)) });
+      return response ? response() : new Response('{"id":"abc"}', { status: 200 });
+    });
+    const ops = createResendOpsNotifier({
+      apiKey: API_KEY,
+      to: 'ops@example.com',
+      from: FROM,
+      baseUrl: 'https://app.example.com',
+      fetch: fakeFetch as unknown as typeof fetch,
+    });
+    return { ops, calls };
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('AI の停止: 原因ごとに件名と対処を変え、運営者の宛先に送る', async () => {
+    const t = setupOps();
+    await t.ops.aiUnavailable({ outage: 'credit', source: 'webhook' });
+    await t.ops.aiUnavailable({ outage: 'auth', source: 'cron' });
+    expect(t.calls.map((c) => c.body.to)).toEqual([['ops@example.com'], ['ops@example.com']]);
+    expect(t.calls[0].body.subject).toBe('【要対応】AI が返事を作れません（Anthropic の前払いクレジットの残高切れ）');
+    expect(t.calls[0].body.text).toContain('platform.claude.com/settings/billing');
+    expect(t.calls[0].body.text).toContain('利用者の発話の処理');
+    expect(t.calls[1].body.subject).toContain('API キーが無効か期限切れ');
+    expect(t.calls[1].body.text).toContain('ANTHROPIC_API_KEY');
+    expect(t.calls[1].body.text).toContain('毎朝の確認（Cron）');
+  });
+
+  it('処理の失敗と毎朝のジョブの失敗: 種類と段の名前だけを載せる', () => {
+    const webhookMail = buildWebhookFailedEmail({ eventType: 'message\nBcc: x' });
+    expect(webhookMail.text).toContain('種類: message Bcc: x');
+    expect(webhookMail.text).toContain('[processWebhook]');
+    const daily = buildDailyJobFailedEmail({ steps: ['demo', 'purge'] });
+    expect(daily.subject).toBe('【要対応】毎朝のジョブが失敗しました（デモ会話の作り直し・会話ログの90日削除）');
+    expect(daily.text).toContain('[cron daily]');
+  });
+
+  it('送信の失敗は握りつぶす（宛先・キーをログに出さない）', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const t = setupOps(() => new Response('{}', { status: 500 }));
+    await expect(t.ops.dailyJobFailed({ steps: ['setup'] })).resolves.toBeUndefined();
+    const logged = JSON.stringify(error.mock.calls);
+    expect(logged).toContain('毎朝のジョブの失敗');
+    expect(logged).not.toContain('ops@example.com');
+    expect(logged).not.toContain(API_KEY);
+  });
+
+  it('AI の停止のメールに管理画面のリンク・利用者の情報を載せない', () => {
+    const mail = buildAiUnavailableEmail({ outage: 'credit', source: 'webhook' });
+    expect(mail.text).not.toContain('/admin/');
+    expect(mail.text).not.toMatch(/U[0-9a-f]{32}/);
+  });
+});
+
+describe('buildCostLimitEmail', () => {
+  it('上限と今日の費用、変え方を載せる', () => {
+    const mail = buildCostLimitEmail({ limitUsd: 1, spentUsd: 1.0123 });
+    expect(mail.subject).toBe('【確認】1日の AI の費用が上限（$1）に達しました');
+    expect(mail.text).toContain('$1.01');
+    expect(mail.text).toContain('DAILY_COST_LIMIT_USD');
   });
 });
