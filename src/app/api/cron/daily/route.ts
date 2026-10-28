@@ -63,7 +63,8 @@ export async function GET(request: Request): Promise<Response> {
   }
   const aiStatus = ai.ok ? 'ok' : (ai.outage ?? 'unavailable');
 
-  console.log('[cron daily]', JSON.stringify({ ...result, ai: aiStatus }));
   const ok = result.ok && (ai.ok || ai.outage === null);
-  return Response.json({ ...result, ai: aiStatus }, { status: ok ? 200 : 500 });
+  const body = { ...result, ok, ai: aiStatus };
+  console.log('[cron daily]', JSON.stringify(body));
+  return Response.json(body, { status: ok ? 200 : 500 });
 }

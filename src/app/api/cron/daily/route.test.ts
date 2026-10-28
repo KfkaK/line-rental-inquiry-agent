@@ -172,7 +172,7 @@ describe('GET /api/cron/daily', () => {
       checkAiAvailability.mockResolvedValueOnce({ ok: false, outage, detail: 'status=400 type=invalid_request_error' });
       const response = await GET(makeRequest(`Bearer ${SECRET}`));
       expect(response.status).toBe(500);
-      await expect(response.json()).resolves.toMatchObject({ ok: true, ai: outage });
+      await expect(response.json()).resolves.toMatchObject({ ok: false, ai: outage });
       expect(ops.aiUnavailable).toHaveBeenLastCalledWith({ outage, source: 'cron' });
     }
     expect(ops.dailyJobFailed).not.toHaveBeenCalled();

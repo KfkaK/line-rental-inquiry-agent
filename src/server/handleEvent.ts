@@ -254,8 +254,11 @@ export async function handleEvent(event: webhook.Event, deps: Deps): Promise<voi
     } catch (error) {
       // API の障害（認証・429・ネット）。状態は進めず、時間をおいて送ってもらう
       console.error('[handleEvent] 条件抽出に失敗しました', error instanceof Error ? error.message : error);
-      await send(messenger, userId, replyToken, [{ type: 'text', text: msg.rateLimited() }]);
-      await alertIfAiUnavailable(deps, error);
+      try {
+        await send(messenger, userId, replyToken, [{ type: 'text', text: msg.rateLimited() }]);
+      } finally {
+        await alertIfAiUnavailable(deps, error);
+      }
       return;
     }
     turnEvent = { kind: 'text', text: userText, extraction: extraction.result };
