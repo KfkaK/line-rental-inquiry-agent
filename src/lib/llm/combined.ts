@@ -6,7 +6,7 @@
  * 2モデル構成と同じ評価セットで 精度・レイテンシ・コスト を並べる（DESIGN.md 7.2・10.2）。
  *
  * 仕組み: 高性能モデル（Sonnet 級）を `submit_turn` ツールで1回だけ呼び、抽出の項目（intent・ops・targetPositions・
- * viewingTimes・forbiddenTopic）と、提示物件への質問のときだけ埋める `answer`（回答文・要引き継ぎ・禁止トピック）を同時に受け取る。
+ * viewingTimes・forbiddenTopic・outOfArea）と、提示物件への質問のときだけ埋める `answer`（回答文・要引き継ぎ・禁止トピック）を同時に受け取る。
  * - `extract` が呼び出しの本体。`answer` は発話と一緒に内部に預ける
  * - `answer` は、会話エンジンが回答ブロックを出したとき、預けた回答を LLM を呼ばずに 2モデル構成と同じ後処理
  *   （`finalizeAnswer`: 禁止トピックなら引き継ぎ → `verifyAnswer` で根拠検証 → 不一致なら引き継ぎに差し替え）に通して返す。
@@ -106,8 +106,16 @@ function renderCombinedExamples(): string {
     // 禁止トピックは最上位で申告し（intent は handoff）、会話エンジンが引き継ぐ。回答は書かない
     const output =
       e.output.forbiddenTopic === null
-        ? { intent: 'propertyQuestion', ops: [], targetPositions: positions, viewingTimes: [], forbiddenTopic: null, answer: e.output }
-        : { intent: 'handoff', ops: [], targetPositions: positions, viewingTimes: [], forbiddenTopic: e.output.forbiddenTopic, answer: null };
+        ? { intent: 'propertyQuestion', ops: [], targetPositions: positions, viewingTimes: [], forbiddenTopic: null, outOfArea: false, answer: e.output }
+        : {
+            intent: 'handoff',
+            ops: [],
+            targetPositions: positions,
+            viewingTimes: [],
+            forbiddenTopic: e.output.forbiddenTopic,
+            outOfArea: false,
+            answer: null,
+          };
     return [
       `例${conditionOnly.length + j + 1}`,
       RECORDS_HEADING,
@@ -141,7 +149,7 @@ const COMBINED_PREAMBLE = `あなたは賃貸仲介会社の LINE 問い合わ�
 6. <user_message>…</user_message>: 正規化後の発話
 
 # ツールの出力
-- intent・ops・targetPositions・viewingTimes・forbiddenTopic は、第1部の規則で決めます
+- intent・ops・targetPositions・viewingTimes・forbiddenTopic・outOfArea は、第1部の規則で決めます
 - answer は、intent が propertyQuestion（提示済みの物件についての質問・比較）で、最上位の forbiddenTopic が null のときだけ、第2部の規則で書きます。それ以外は null にします
 - 回答の対象は targetPositions の物件です。回答文は targetPositions の物件のレコードだけを根拠にします（後段が targetPositions の物件のレコードと照合するので、ほかの物件の情報を書くと破棄されます）。対象を特定できない（targetPositions が空で、提示済みが複数ある）ときは answer を null にします
 - 第2部の「答えない話題」に当たるときは、最上位の forbiddenTopic にその値を入れ（intent は handoff）、answer は null にします。第2部が「answer を空文字にして forbiddenTopic に入れる」と書いているのは、このことです

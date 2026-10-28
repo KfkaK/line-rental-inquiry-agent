@@ -229,6 +229,9 @@ function onTextInner(conv: ConversationSnapshot, text: string, ex: ExtractionRes
     const next = conv.state === 'booking' && !keepsBooking(conv, handoffNote.propertyIds) ? { ...conv, state: 'qa' as const } : conv;
     return { ...base(conv), replies: [{ type: 'text', text: handoffText }], next, handoffNote };
   }
+  // 駅マスタに無い地名（「やっぱり船橋で」）。前の条件のまま黙って探さず、対応エリアを案内する。
+  // 提示物件への質問・内見の中で地名が出ても（「船橋に通いやすいのは？」）その流れは止めない
+  if (ex.outOfArea && (ex.intent === 'conditions' || ex.intent === 'offTopic')) return onOutOfArea(conv, ex, ctx);
   switch (ex.intent) {
     case 'conditions':
       return presentSearch(conv, applySlotOps(conv.slots, ex.ops), ctx);
@@ -259,6 +262,21 @@ function onTextInner(conv: ConversationSnapshot, text: string, ex: ExtractionRes
     default:
       return { ...base(conv), replies: [{ type: 'text', text: msg.offTopic() }] };
   }
+}
+
+/**
+ * 対応エリアの外の地名を挙げられた。同じ発話に対応エリアの駅もあれば、そちらで探して前置きを足す。
+ * 無ければ探さずに対応エリアを案内してエリアのボタンを出す。エリアは前の値のまま残し（言い直してもらう）、
+ * 同じ発話のほかの条件（予算など）は当てる。条件が変わったら提示済みのカードとは合わなくなるので、提示を捨てて聞き取りに戻す
+ */
+function onOutOfArea(conv: ConversationSnapshot, ex: ExtractionResult, ctx: TurnContext): TurnDecision {
+  const slots = applySlotOps(conv.slots, ex.ops);
+  if (ex.ops.some((op) => op.op === 'set' && op.key === 'area')) {
+    const searched = presentSearch(conv, slots, ctx);
+    return { ...searched, replies: [{ type: 'text', text: msg.outOfArea(true) }, ...searched.replies] };
+  }
+  const next: ConversationSnapshot = ex.ops.length > 0 ? { ...conv, state: 'hearing', slots, shownPropertyIds: [] } : conv;
+  return { ...base(conv), replies: [{ type: 'text', text: msg.outOfArea(false) }], quickReplies: quickAsk('area'), next };
 }
 
 /** 表示番号 → 物件。番号の指定が無く、提示が1件だけならその物件 */

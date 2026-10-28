@@ -357,6 +357,7 @@ export function describeMismatch(run: CaseRun): string[] {
   if (!score.targetsOk) lines.push(`表示番号: 期待 ${listText(c.expected.targetPositions ?? [])} → 実際 ${listText(actual.targetPositions)}`);
   if (!score.viewingTimesOk) lines.push(`内見の日時: 期待 ${listText(c.expected.viewingTimes ?? [])} → 実際 ${listText(actual.viewingTimes)}`);
   if (!score.forbiddenOk) lines.push(`禁止トピック: 期待 ${c.expected.forbiddenTopic ?? 'なし'} → 実際 ${actual.forbiddenTopic ?? 'なし'}`);
+  if (!score.outOfAreaOk) lines.push(`対応エリアの外: 期待 ${c.expected.outOfArea ? 'あり' : 'なし'} → 実際 ${actual.outOfArea ? 'あり' : 'なし'}`);
   if (run.error !== null) lines.push(`API エラー: ${run.error}（fallbackExtraction で採点）`);
   return lines;
 }
@@ -387,6 +388,7 @@ export function formatExtractionReport(input: ExtractionReportInput): string {
     ['禁止トピックの再現率', summary.forbiddenRecall],
     ['表示番号', summary.targets],
     ['内見の日時', summary.viewingTimes],
+    ['対応エリアの外', summary.outOfArea],
   ];
   for (const [label, r] of rows) out.push(`| ${label} | ${formatRate(r)} | ${formatFraction(r)} |`);
   out.push('', `禁止トピックの誤検出: ${summary.forbiddenFalsePositives} 件`, '');

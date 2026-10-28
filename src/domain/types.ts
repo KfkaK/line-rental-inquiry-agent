@@ -241,6 +241,11 @@ export interface ExtractionResult {
   /** 内見の候補日時（JST の 'YYYY-MM-DDTHH:mm'。時刻が無ければ 'YYYY-MM-DD'） */
   viewingTimes: string[];
   forbiddenTopic: ForbiddenTopic | null;
+  /**
+   * 住みたい場所として、駅マスタ・区の一覧に無い地名（「船橋で」）を挙げた。その地名は ops に出ない。
+   * 会話エンジンは前の条件で黙って探さず、対応エリアを案内する。省略は false
+   */
+  outOfArea?: boolean;
 }
 
 // ---------- 営業時間 ----------

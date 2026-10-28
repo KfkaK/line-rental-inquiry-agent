@@ -105,6 +105,8 @@ export interface ExtractionCaseScore {
   targetsOk: boolean;
   viewingTimesOk: boolean;
   forbiddenOk: boolean;
+  /** 対応エリアの外の申告（省略は false）が一致 */
+  outOfAreaOk: boolean;
   /** 上のすべてが一致 */
   exact: boolean;
 }
@@ -117,6 +119,7 @@ export function scoreExtractionCase(c: ExtractionCase, actual: ExtractionResult)
   const targetsOk = sameSet(c.expected.targetPositions ?? [], actual.targetPositions);
   const viewingTimesOk = sameSet(c.expected.viewingTimes ?? [], actual.viewingTimes);
   const forbiddenOk = (c.expected.forbiddenTopic ?? null) === actual.forbiddenTopic;
+  const outOfAreaOk = (c.expected.outOfArea ?? false) === (actual.outOfArea ?? false);
   return {
     id: c.id,
     category: c.category,
@@ -127,7 +130,8 @@ export function scoreExtractionCase(c: ExtractionCase, actual: ExtractionResult)
     targetsOk,
     viewingTimesOk,
     forbiddenOk,
-    exact: intentOk && slotsOk && targetsOk && viewingTimesOk && forbiddenOk,
+    outOfAreaOk,
+    exact: intentOk && slotsOk && targetsOk && viewingTimesOk && forbiddenOk && outOfAreaOk,
   };
 }
 
@@ -177,6 +181,8 @@ export interface ExtractionSummary {
   targets: Ratio;
   /** 正解か実際のどちらかが日時を持つ発話で、日時が一致した割合 */
   viewingTimes: Ratio;
+  /** 正解か実際のどちらかが対応エリアの外を申告した発話で、申告が一致した割合 */
+  outOfArea: Ratio;
   /** カテゴリごとの完全一致 */
   byCategory: Partial<Record<ExtractionCategory, Ratio>>;
 }
@@ -226,6 +232,10 @@ export function summarizeExtraction(
     viewingTimes: count(
       (i) => scores[i].viewingTimesOk,
       (i) => (cases[i].expected.viewingTimes ?? []).length > 0 || actuals[i].viewingTimes.length > 0,
+    ),
+    outOfArea: count(
+      (i) => scores[i].outOfAreaOk,
+      (i) => cases[i].expected.outOfArea === true || actuals[i].outOfArea === true,
     ),
     byCategory,
   };

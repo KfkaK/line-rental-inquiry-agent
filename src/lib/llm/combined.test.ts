@@ -489,7 +489,7 @@ describe('システムプロンプト', () => {
 
   it('出力例は answer つきの出力形で、回答生成の出力例（レコードつき）を含む。出力はツールのスキーマの項目と一致する', () => {
     const outputs = [...COMBINED_SYSTEM_PROMPT.matchAll(/^出力: (.+)$/gm)].map((m) => JSON.parse(m[1]) as Record<string, unknown>);
-    const keys = ['intent', 'ops', 'targetPositions', 'viewingTimes', 'forbiddenTopic', 'answer'];
+    const keys = ['intent', 'ops', 'targetPositions', 'viewingTimes', 'forbiddenTopic', 'outOfArea', 'answer'];
     expect(outputs.length).toBeGreaterThanOrEqual(ANSWER_EXAMPLES.length + 8);
     for (const o of outputs) {
       expect(Object.keys(o)).toEqual(keys);
@@ -501,7 +501,7 @@ describe('システムプロンプト', () => {
       for (const t of e.targets) expect(COMBINED_SYSTEM_PROMPT).toContain(`### ${t.position}番目: ${t.property.name}`);
       // 回答のある例は、回答生成の出力をそのまま answer に入れている。禁止トピックの例は最上位で申告し、answer は null
       if (e.output.forbiddenTopic === null) expect(COMBINED_SYSTEM_PROMPT).toContain(`"answer":${JSON.stringify(e.output)}}`);
-      else expect(COMBINED_SYSTEM_PROMPT).toContain(`"forbiddenTopic":"${e.output.forbiddenTopic}","answer":null}`);
+      else expect(COMBINED_SYSTEM_PROMPT).toContain(`"forbiddenTopic":"${e.output.forbiddenTopic}","outOfArea":false,"answer":null}`);
     }
     // 抽出の出力例のうち、提示物件への質問（回答の中身が要る）はレコードつきの例に置き換えている
     expect(outputs.some((o) => o.answer === null && o.intent === 'propertyQuestion')).toBe(false);

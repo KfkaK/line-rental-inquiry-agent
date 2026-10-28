@@ -72,6 +72,8 @@ export interface ExtractionCase {
     viewingTimes?: string[];
     /** 省略時は null */
     forbiddenTopic?: ForbiddenTopic | null;
+    /** 駅マスタに無い地名を住む場所として挙げた。省略時は false */
+    outOfArea?: boolean;
   };
   /** 正解の根拠（解釈が割れうるとき） */
   note?: string;
