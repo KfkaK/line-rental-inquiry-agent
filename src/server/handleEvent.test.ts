@@ -2,6 +2,7 @@ import type { webhook } from '@line/bot-sdk';
 import { describe, expect, it, vi } from 'vitest';
 import { fromJst } from '@/domain/businessHours';
 import { makeProperty } from '@/domain/fixtures';
+import * as msg from '@/domain/messages';
 import type { ExtractionResult, Property } from '@/domain/types';
 import { createMemoryRepositories } from '@/lib/db';
 import { createFakeMessenger } from '@/lib/line/messenger';
@@ -164,12 +165,12 @@ describe('handleEvent', () => {
     expect((await t.conversation()).aiPaused).toBe(false);
   });
 
-  it('1分に5発話を超えたら LLM を呼ばずに「混み合っています」', async () => {
+  it('1分に5発話を超えたら LLM を呼ばずに、続けて届いたので待ってほしいと伝える（混雑とは言わない）', async () => {
     const t = setup();
     for (let i = 0; i < 5; i++) await handleEvent(textEvent(`こんにちは${i}`), t.deps);
     await handleEvent(textEvent('6回目'), t.deps);
     expect(t.extractCalls).toHaveLength(5);
-    expect(textsOf(t.lastReply())[0]).toContain('混み合っています');
+    expect(textsOf(t.lastReply())[0]).toBe(msg.tooManyMessages());
   });
 
   it('レート制限はボタン・友だち追加・断った発話を数えず、1分たてば戻る（実機で見つかった不具合）', async () => {
@@ -180,12 +181,12 @@ describe('handleEvent', () => {
     for (let i = 0; i < 4; i++) await handleEvent(textEvent(`質問${i}`), t.deps);
     // 友だち追加1・ボタン4・自由文5 のうち、LLM を通したのは自由文の5回だけ
     expect(t.extractCalls).toHaveLength(5);
-    expect(textsOf(t.lastReply()).join('')).not.toContain('混み合っています');
+    expect(textsOf(t.lastReply()).join('')).not.toContain(msg.tooManyMessages());
 
     await handleEvent(textEvent('6回目'), t.deps);
     await handleEvent(textEvent('7回目'), t.deps);
     expect(t.extractCalls).toHaveLength(5);
-    expect(textsOf(t.lastReply())[0]).toContain('混み合っています');
+    expect(textsOf(t.lastReply())[0]).toBe(msg.tooManyMessages());
 
     // 断った2回は数えないので、最初の5回から1分たてば通る
     t.advance(60_001);
@@ -239,13 +240,13 @@ describe('handleEvent', () => {
       const t = setup({ extractions: [SEARCH] });
       await handleEvent(textEvent('渋谷で9万まで'), t.deps);
       for (let i = 0; i < 19; i++) await handleEvent(more(), t.deps);
-      expect(textsOf(t.lastReply()).join('')).not.toContain('混み合っています');
+      expect(textsOf(t.lastReply()).join('')).not.toContain(msg.tooManyMessages());
       await handleEvent(more(), t.deps);
-      expect(textsOf(t.lastReply())[0]).toContain('混み合っています');
+      expect(textsOf(t.lastReply())[0]).toBe(msg.tooManyMessages());
 
       t.advance(60_001);
       await handleEvent(more(), t.deps);
-      expect(textsOf(t.lastReply()).join('')).not.toContain('混み合っています');
+      expect(textsOf(t.lastReply()).join('')).not.toContain(msg.tooManyMessages());
     });
 
     it('画像・スタンプは、担当者が対応中なら返信せず、印を残して担当者へ知らせる（不変条件 8）', async () => {

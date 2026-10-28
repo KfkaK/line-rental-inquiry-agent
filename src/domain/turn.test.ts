@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { defaultCalendar, fromJst } from './businessHours';
 import { makeProperty } from './fixtures';
+import * as msg from './messages';
 import { emptySlots } from './slots';
 import { decideTurn, type ConversationSnapshot, type TurnContext, type TurnDecision } from './turn';
 import type { ExtractionResult, Property, SlotOp } from './types';
@@ -116,6 +117,58 @@ describe('ヒアリングと検索', () => {
     const locked = shibuya(8).map((p) => (p.id === 'S008' ? { ...p, tags: [...p.tags, 'オートロック' as const] } : p));
     const changed = search(locked, [{ op: 'addTag', tag: 'オートロック' }], search(locked).next);
     expect(texts(changed)[0]).not.toContain('前回と同じ');
+  });
+});
+
+describe('対応エリアの外の地名（実機で見つかった不具合: 「やっぱり船橋で」が無視され、前のエリアで探していた）', () => {
+  const outside = (partial: Partial<ExtractionResult> = {}) => ex({ outOfArea: true, ...partial });
+
+  it('エリアを聞いている途中で言われたら、予算を聞き進めずに対応エリアを案内し、エリアのボタンを出す', () => {
+    const asked = search(shibuya(3), [AREA_AND_BUDGET[0]]);
+    const d = decideTurn(asked.next, { kind: 'text', text: 'やっぱり船橋で', extraction: outside() }, ctx(shibuya(3)));
+    expect(texts(d)).toEqual([msg.outOfArea(false)]);
+    expect(texts(d)[0]).toContain('山手線・中央線（東京〜三鷹）・東急東横線（渋谷〜日吉）の駅の近く');
+    expect(d.quickReplies.map((q) => q.label)).toContain('渋谷');
+    expect(d.replies.some((r) => r.type === 'carousel')).toBe(false);
+    // エリアは前の値のまま（言い直してもらう）
+    expect(d.next).toEqual(asked.next);
+  });
+
+  it('提示の後に言われたら、前のエリアで探し直さない。条件が変わらなければ提示はそのまま', () => {
+    const props = shibuya(8);
+    const first = search(props);
+    const d = decideTurn(first.next, { kind: 'text', text: '船橋市の近くだよ', extraction: outside({ intent: 'offTopic' }) }, ctx(props));
+    expect(texts(d)).toEqual([msg.outOfArea(false)]);
+    expect(d.next).toEqual(first.next);
+  });
+
+  it('同じ発話のほかの条件は当て、提示を捨てて聞き取りに戻す（探さない）', () => {
+    const props = shibuya(8);
+    const first = search(props);
+    const extraction = outside({ ops: [{ op: 'set', key: 'rentMax', value: 100000 }] });
+    const d = decideTurn(first.next, { kind: 'text', text: '船橋で10万まで', extraction }, ctx(props));
+    expect(texts(d)).toEqual([msg.outOfArea(false)]);
+    expect(d.next.slots.rentMax?.value).toBe(100000);
+    expect(d.next.slots.area?.value.stations).toEqual(['渋谷']);
+    expect(d.next).toMatchObject({ state: 'hearing', shownPropertyIds: [] });
+  });
+
+  it('対応エリアの駅も一緒なら、そちらで探して前置きを添える', () => {
+    const d = decideTurn(fresh(), { kind: 'text', text: '渋谷か船橋で9万まで', extraction: outside({ ops: AREA_AND_BUDGET }) }, ctx(shibuya(3)));
+    expect(texts(d)[0]).toBe(msg.outOfArea(true));
+    expect(texts(d)[1]).toContain('3件あります');
+    expect(d.replies.some((r) => r.type === 'carousel')).toBe(true);
+  });
+
+  it('提示物件への質問の中の地名や、禁止トピックは、これまでどおりに扱う', () => {
+    const props = shibuya(3);
+    const first = search(props);
+    const question = outside({ intent: 'propertyQuestion', targetPositions: [1] });
+    const q = decideTurn(first.next, { kind: 'text', text: '1番目から船橋は遠い？', extraction: question }, ctx(props));
+    expect(q.replies[0].type).toBe('answer');
+    const handoff = outside({ intent: 'handoff', forbiddenTopic: 'safety' });
+    const h = decideTurn(first.next, { kind: 'text', text: '船橋って治安いい？', extraction: handoff }, ctx(props));
+    expect(texts(h)[0]).toContain('周辺の治安');
   });
 });
 

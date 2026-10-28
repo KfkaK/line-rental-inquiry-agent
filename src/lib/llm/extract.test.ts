@@ -370,8 +370,24 @@ describe('extractIntentAndSlots: プロンプト', () => {
     expect(op.stations.items!.enum).toEqual(STATIONS.map((s) => s.name));
     expect(op.wards.items!.enum).toEqual([...WARDS]);
     expect(op.layouts.items!.enum).toEqual([...LAYOUTS]);
-    expect(tool.inputSchema.required).toEqual(['intent', 'ops', 'targetPositions', 'viewingTimes', 'forbiddenTopic']);
+    expect(tool.inputSchema.required).toEqual(['intent', 'ops', 'targetPositions', 'viewingTimes', 'forbiddenTopic', 'outOfArea']);
     expect(JSON.stringify(tool.inputSchema.properties)).toContain(JSON.stringify([...FORBIDDEN_TOPICS]));
+  });
+
+  it('対応エリアの外（outOfArea）: true だけを結果に載せ、false と省略は載せない（省略は false）', async () => {
+    const { outcome } = await run(ok({ outOfArea: true }), { utterance: 'やっぱり船橋で' });
+    expect(outcome.result).toEqual({ intent: 'conditions', ops: [], targetPositions: [], viewingTimes: [], forbiddenTopic: null, outOfArea: true });
+    expect((await run(ok({ outOfArea: false }))).outcome.result).not.toHaveProperty('outOfArea');
+    expect((await run(ok({}))).outcome.result).not.toHaveProperty('outOfArea');
+  });
+
+  it('マスタに無い地名は無視せず outOfArea で申告する規則と、その出力例がある（実機で「やっぱり船橋で」が無視された）', () => {
+    expect(EXTRACTION_RULES_PROMPT).not.toContain('マスタに無い駅・タグに当たる希望は無視する');
+    expect(EXTRACTION_RULES_PROMPT).toContain('# 対応エリアの外（outOfArea）');
+    expect(EXTRACTION_SYSTEM_PROMPT).toContain('"forbiddenTopic":null,"outOfArea":true}');
+    const outputs = [...EXTRACTION_SYSTEM_PROMPT.matchAll(/^出力: (.+)$/gm)].map((m) => JSON.parse(m[1]) as Record<string, unknown>);
+    const keys = Object.keys(buildExtractionTool().inputSchema.properties as object);
+    for (const o of outputs) expect(Object.keys(o)).toEqual(keys);
   });
 
   it('現在のスロット・提示済み物件・日付の早見表・辞書のヒントをユーザーメッセージに載せる', async () => {

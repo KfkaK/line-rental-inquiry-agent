@@ -7,6 +7,7 @@ import { formatDate, formatManYen, formatYen } from './labels';
 import { DEFAULT_WALK_PREFERENCE_MIN } from './rules';
 import { monthlyCost } from './search';
 import type { ConditionSummary } from './slots';
+import { LINES } from './stations';
 import type { ForbiddenTopic, Priority, Property, ScalarSlotKey } from './types';
 
 export const DISCLAIMER = '回答は参考情報です。契約条件は担当者からの案内が優先されます。';
@@ -36,8 +37,13 @@ export function outsideHoursNote(): string {
   return 'ただいま営業時間外ですが、物件探しはお手伝いできます。';
 }
 
+/** 「山手線・中央線（東京〜三鷹）・東急東横線（渋谷〜日吉）」。駅マスタの路線から作る（環状線は全駅なので区間を書かない） */
+export function coverageLabel(): string {
+  return LINES.map((l) => (l.loop ? l.name : `${l.name}（${l.stations[0]}〜${l.stations[l.stations.length - 1]}）`)).join('・');
+}
+
 const ASK: Record<ScalarSlotKey, string> = {
-  area: 'ご希望のエリアを教えてください（例: 渋谷、中目黒、吉祥寺。複数でも大丈夫です）。',
+  area: `ご希望のエリアを教えてください（例: 渋谷、中目黒、吉祥寺。複数でも大丈夫です）。\nご案内できるのは、${coverageLabel()}の駅の近くの物件です。`,
   rentMax: 'ご予算（管理費込みの月額）はどのくらいですか？',
   layouts: 'ご希望の間取りはありますか？',
   walkMax: '駅からの徒歩は何分までがよいですか？',
@@ -106,6 +112,18 @@ export function noMoreResults(): string {
 
 export function keepConditions(): string {
   return '承知しました。条件はそのままにします。ほかに気になる点があればお知らせください。';
+}
+
+/**
+ * 駅マスタに無い地名を挙げられたとき。地名は抽出の解釈なので文に写さない（言い直してもらう）。
+ * `withOtherStations` は同じ発話に対応エリアの駅もあり、そちらで探すとき
+ */
+export function outOfArea(withOtherStations: boolean): string {
+  const lead = withOtherStations
+    ? '対応エリアの外の場所は除いて、ご案内できる駅で探します。'
+    : 'ご希望の場所は、対応エリアの外のようです。';
+  const tail = withOtherStations ? '' : '\nこの中で、ご希望の駅を教えてください。';
+  return `${lead}\nご案内できるのは、${coverageLabel()}の駅の近くの物件です。${tail}`;
 }
 
 export function offTopic(): string {
@@ -227,8 +245,14 @@ export function textOnly(): string {
   return '恐れ入りますが、ご希望は文字でお送りください。';
 }
 
+/** 1日の費用上限・API の障害（利用者のせいではない） */
 export function rateLimited(): string {
   return 'ただいま混み合っています。少し時間をおいてからもう一度お送りください。';
+}
+
+/** 利用者ごとの1分の上限（RATE_LIMIT_PER_MINUTE・EVENT_RATE_LIMIT_PER_MINUTE）。混雑と取り違えないよう、何が起きたかを言う */
+export function tooManyMessages(): string {
+  return '続けてたくさんのメッセージが届いたため、少しお待ちいただいています。1分ほどおいてから、もう一度お送りください。';
 }
 
 /** 利用者ごとの1日の上限（DAILY_TURNS_PER_USER）に達した */
